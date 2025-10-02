@@ -1,4 +1,3 @@
-// client/src/main/kotlin/dev/vex/client/render/Renderer.kt
 package dev.vex.client.render
 
 import dev.vex.client.world.Chunk
@@ -22,7 +21,22 @@ class Renderer {
     }
 
     private fun renderChunk(chunk: Chunk) {
-        // Example: just print the chunk coords and top solid block
-        println("Rendering chunk at (${chunk.position.x}, ${chunk.position.z})")
+        // Try to print chunk coordinates if the chunk exposes a `position` with `x` and `z`.
+        // Use reflection so this file doesn't depend on a specific Chunk API at compile time.
+        val coords = try {
+            val posField = chunk::class.java.getDeclaredField("position").apply { isAccessible = true }
+            val pos = posField.get(chunk) ?: throw NoSuchFieldException("position is null")
+            val xField = pos::class.java.getDeclaredField("x").apply { isAccessible = true }
+            val zField = pos::class.java.getDeclaredField("z").apply { isAccessible = true }
+            val x = xField.getInt(pos)
+            val z = zField.getInt(pos)
+            "($x, $z)"
+        } catch (e: Exception) {
+            // If the reflection fails, fallback to a simple toString so we still have useful output.
+            chunk.toString()
+        }
+
+        // Example render stub — replace with the real GL draw calls.
+        println("Rendering chunk at $coords")
     }
 }
