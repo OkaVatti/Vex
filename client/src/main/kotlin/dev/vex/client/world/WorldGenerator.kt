@@ -79,17 +79,17 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
 
                 // Multi-octave noise for natural terrain
                 val baseNoise = terrainNoise.fbm(worldX * 0.0025, worldZ * 0.0025, 4)
-                val detailNoise = this.detailNoise.fbm(worldX * 0.01, worldZ * 0.01, 3)
+                val detailNoiseVal = this.detailNoise.fbm(worldX * 0.01, worldZ * 0.01, 3)
 
                 val biome = biomeMap[x][z]
                 val heightModifier = biome.heightModifier
 
                 val baseHeight = 64 + (baseNoise * 32 * heightModifier).toInt()
-                val height = baseHeight + (detailNoise * 8).toInt()
+                val height = baseHeight + (detailNoiseVal * 8).toInt()
 
                 // Place bedrock layer
                 for (y in -128..-122) {
-                    if (random.nextFloat() < 0.9f) {
+                    if (y == -128 || random.nextFloat() < 0.9f) {
                         chunk.setBlock(x, y, z, Blocks.BEDROCK.id)
                     }
                 }
@@ -129,6 +129,9 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
                 if (height < 63) {
                     for (y in height until 63) {
                         chunk.setBlock(x, y, z, Blocks.WATER.id)
+                    }
+                    if (biome.surfaceBlock == Blocks.GRASS.id) {
+                        chunk.setBlock(x, height-1, z, Blocks.DIRT.id)
                     }
                 }
             }
@@ -225,10 +228,10 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
 
                 // Place grass/flowers
                 if (random.nextFloat() < biome.grassDensity) {
-                    chunk.setBlock(x, height + 1, z, Blocks.GRASS.id)
+                    chunk.setBlock(x, height + 1, z, Blocks.TALL_GRASS.id)
                 }
 
-                // Place trees (simplified - full tree generation would be more complex)
+                // Place trees
                 if (random.nextFloat() < biome.treeDensity && height > 63) {
                     placeTree(chunk, x, height + 1, z, biome)
                 }
@@ -237,6 +240,13 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
     }
 
     private fun placeTree(chunk: Chunk, x: Int, y: Int, z: Int, biome: Biome) {
+        // *** FIX: Added a check to prevent trees from generating on chunk edges ***
+        // This prevents leaves from spilling into ungenerated or different chunks.
+        val leafRadius = 2
+        if (x < leafRadius || x >= 16 - leafRadius || z < leafRadius || z >= 16 - leafRadius) {
+            return
+        }
+
         val treeHeight = 4 + random.nextInt(3)
         val logId = biome.treeLog
         val leavesId = biome.treeLeaves
@@ -249,13 +259,19 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
         // Place leaves (simple sphere)
         val leafStart = y + treeHeight - 2
         for (dy in 0..2) {
-            for (dx in -2..2) {
-                for (dz in -2..2) {
-                    if (dx * dx + dz * dz <= 4) {
+            for (dx in -leafRadius..leafRadius) {
+                for (dz in -leafRadius..leafRadius) {
+                    if (dx * dx + dz * dz <= leafRadius * leafRadius) {
+                        // Don't overwrite the top of the trunk
+                        if (dx == 0 && dz == 0 && dy > 0) continue
+
                         val lx = x + dx
+                        val ly = leafStart + dy
                         val lz = z + dz
-                        if (lx in 0 until 16 && lz in 0 until 16) {
-                            chunk.setBlock(lx, leafStart + dy, lz, leavesId)
+
+                        // Check if the current block is air to avoid weird tree shapes
+                        if(chunk.getBlock(lx, ly, lz) == Blocks.AIR.id) {
+                            chunk.setBlock(lx, ly, lz, leavesId)
                         }
                     }
                 }
@@ -269,7 +285,15 @@ class WorldGenerator(private val seed: Long = Random.nextLong()) {
  */
 class PerlinNoise(seed: Long) {
     private val random = Random(seed)
-    private val permutation = IntArray(512) { random.nextInt(256) }
+    // *** FIX: Correctly initialized the permutation table for standard Perlin noise. ***
+    // The original code used random values, which is incorrect. This uses a shuffled
+    // sequence of 0-255, duplicated to 512 entries to avoid bounds checking.
+    private val permutation = IntArray(512).apply {
+        val p = (0..255).shuffled(random)
+        for (i in 0..511) {
+            this[i] = p[i and 255]
+        }
+    }
 
     fun noise(x: Double, y: Double): Double {
         val xi = floor(x).toInt() and 255
@@ -305,14 +329,15 @@ class PerlinNoise(seed: Long) {
         val v = fade(yf)
         val w = fade(zf)
 
-        val aaa = permutation[permutation[permutation[xi] + yi] + zi]
-        val aba = permutation[permutation[permutation[xi] + yi + 1] + zi]
-        val aab = permutation[permutation[permutation[xi] + yi] + zi + 1]
-        val abb = permutation[permutation[permutation[xi] + yi + 1] + zi + 1]
-        val baa = permutation[permutation[permutation[xi + 1] + yi] + zi]
-        val bba = permutation[permutation[permutation[xi + 1] + yi + 1] + zi]
-        val bab = permutation[permutation[permutation[xi + 1] + yi] + zi + 1]
-        val bbb = permutation[permutation[permutation[xi + 1] + yi + 1] + zi + 1]
+        val p = permutation
+        val aaa = p[p[p[xi] + yi] + zi]
+        val aba = p[p[p[xi] + yi + 1] + zi]
+        val aab = p[p[p[xi] + yi] + zi + 1]
+        val abb = p[p[p[xi] + yi + 1] + zi + 1]
+        val baa = p[p[p[xi + 1] + yi] + zi]
+        val bba = p[p[p[xi + 1] + yi + 1] + zi]
+        val bab = p[p[p[xi + 1] + yi] + zi + 1]
+        val bbb = p[p[p[xi + 1] + yi + 1] + zi + 1]
 
         val x1 = lerp(grad3D(aaa, xf, yf, zf), grad3D(baa, xf - 1, yf, zf), u)
         val x2 = lerp(grad3D(aba, xf, yf - 1, zf), grad3D(bba, xf - 1, yf - 1, zf), u)

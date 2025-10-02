@@ -1,15 +1,14 @@
 package dev.vex.client.render
 
-import dev.vex.client.world.Chunk
 import dev.vex.client.world.Blocks
-import org.lwjgl.opengl.GL15.*
-import org.lwjgl.opengl.GL20.*
+import dev.vex.client.world.Chunk
 import org.lwjgl.opengl.GL30.*
 import org.lwjgl.system.MemoryUtil
 import java.nio.FloatBuffer
 
 /**
- * Generates optimized mesh for a chunk using greedy meshing algorithm.
+ * Generates and stores the renderable mesh for a single Chunk.
+ * This implementation uses a greedy meshing algorithm to reduce the vertex count.
  */
 class ChunkMesh(private val chunk: Chunk) {
     private var vao = 0
@@ -23,6 +22,7 @@ class ChunkMesh(private val chunk: Chunk) {
     fun generate(atlas: TextureAtlas) {
         vertices.clear()
 
+        // Generate mesh for each of the 6 faces
         for (face in Face.entries) {
             generateFace(face, atlas)
         }
@@ -31,67 +31,75 @@ class ChunkMesh(private val chunk: Chunk) {
     }
 
     private fun generateFace(face: Face, atlas: TextureAtlas) {
-        val (dx, dy, dz) = when (face) {
+        val (dirX, dirY, dirZ) = when (face) {
             Face.NORTH -> Triple(0, 0, -1)
             Face.SOUTH -> Triple(0, 0, 1)
-            Face.EAST -> Triple(1, 0, 0)
-            Face.WEST -> Triple(-1, 0, 0)
-            Face.TOP -> Triple(0, 1, 0)
-            Face.BOTTOM -> Triple(0, -1, 0)
+            Face.EAST  -> Triple(1, 0, 0)
+            Face.WEST  -> Triple(-1, 0, 0)
+            Face.TOP   -> Triple(0, 1, 0)
+            Face.BOTTOM-> Triple(0, -1, 0)
         }
 
-        val (w, h, d) = getAxisDimensions(face)
+        // Determine the axes for our 2D slice
+        val (sliceW, sliceH, sliceD) = getAxisDimensions(face)
 
-        for (layer in 0 until d) {
-            val mask = Array(w) { BooleanArray(h) }
+        // Iterate through each layer of the chunk's 3D volume
+        for (layer in 0 until sliceD) {
+            // *** FIX: Mask now stores blockID (or 0) instead of a boolean. ***
+            // This is crucial for merging faces of the same block type only.
+            val mask = Array(sliceW) { IntArray(sliceH) }
 
-            for (x in 0 until w) {
-                for (y in 0 until h) {
-                    val (bx, by, bz) = mapToWorld(x, y, layer, face)
+            // 1. Create the mask for the current slice
+            for (x in 0 until sliceW) {
+                for (y in 0 until sliceH) {
+                    val (pX, pY, pZ) = mapToChunkCoords(x, y, layer, face)
 
-                    if (bx !in 0 until chunk.width ||
-                        by !in -128 until 256 ||
-                        bz !in 0 until chunk.depth) {
-                        continue
+                    val currentBlockId = chunk.getBlock(pX, pY, pZ)
+                    val neighborBlockId = chunk.getBlock(pX + dirX, pY + dirY, pZ + dirZ)
+
+                    val currentBlock = Blocks.getById(currentBlockId)
+                    val neighborBlock = Blocks.getById(neighborBlockId)
+
+                    // A face is visible if the neighbor is transparent and this block is not.
+                    // This prevents rendering faces between two transparent blocks (e.g. water-glass).
+                    if (currentBlock.id != Blocks.AIR.id && !currentBlock.isTransparent && neighborBlock.isTransparent) {
+                        mask[x][y] = currentBlockId
                     }
-
-                    val block = chunk.getBlock(bx, by, bz)
-                    if (block == 0) continue
-
-                    val neighborBlock = chunk.getBlockSafe(bx + dx, by + dy, bz + dz)
-                    mask[x][y] = neighborBlock == 0 || !isOpaque(neighborBlock)
                 }
             }
 
-            for (x in 0 until w) {
-                for (y in 0 until h) {
-                    if (!mask[x][y]) continue
+            // 2. Generate quads from the mask using the greedy algorithm
+            for (y in 0 until sliceH) {
+                for (x in 0 until sliceW) {
+                    val blockId = mask[x][y]
+                    if (blockId == 0) continue
 
-                    var width = 1
-                    while (x + width < w && mask[x + width][y]) {
-                        width++
+                    // Find the width of the quad
+                    var w = 1
+                    while (x + w < sliceW && mask[x + w][y] == blockId) {
+                        w++
                     }
 
-                    var height = 1
+                    // Find the height of the quad
+                    var h = 1
                     var done = false
-                    while (y + height < h && !done) {
-                        for (k in 0 until width) {
-                            if (!mask[x + k][y + height]) {
+                    while (y + h < sliceH && !done) {
+                        for (k in 0 until w) {
+                            if (mask[x + k][y + h] != blockId) {
                                 done = true
                                 break
                             }
                         }
-                        if (!done) height++
+                        if (!done) h++
                     }
 
-                    val (bx, by, bz) = mapToWorld(x, y, layer, face)
-                    val blockId = chunk.getBlock(bx, by, bz)
+                    // Add the quad to the vertices list
+                    addQuad(x, y, layer, w, h, face, blockId, atlas)
 
-                    addQuad(x, y, layer, width, height, face, blockId, atlas)
-
-                    for (i in 0 until width) {
-                        for (j in 0 until height) {
-                            mask[x + i][y + j] = false
+                    // Zero out the mask for the area covered by this quad
+                    for (j in 0 until h) {
+                        for (i in 0 until w) {
+                            mask[x + i][y + j] = 0
                         }
                     }
                 }
@@ -99,167 +107,165 @@ class ChunkMesh(private val chunk: Chunk) {
         }
     }
 
+    /**
+     * FIX: Rewritten to correctly generate 4 vertices for a quad on any face.
+     */
     private fun addQuad(
-        x: Int, y: Int, z: Int,
-        w: Int, h: Int,
-        face: Face,
-        blockId: Int,
-        atlas: TextureAtlas
+        sliceX: Int, sliceY: Int, layer: Int,
+        width: Int, height: Int,
+        face: Face, blockId: Int, atlas: TextureAtlas
     ) {
-        val corners = getQuadCorners(x, y, z, w, h, face)
-        val x0 = corners[0]
-        val y0 = corners[1]
-        val z0 = corners[2]
-        val x1 = corners[3]
-        val y1 = corners[4]
-        val z1 = corners[5]
+        val block = Blocks.getById(blockId)
+        val textureIndex = when (face) {
+            Face.TOP    -> block.topTexture
+            Face.BOTTOM -> block.bottomTexture
+            else        -> block.sideTexture
+        }
 
-        val textureIndex = getTextureIndex(blockId, face)
-        val uv = atlas.getUV(textureIndex)
+        // TODO: Get real UVs from TextureAtlas
+        val u0 = (textureIndex % 16) / 16f
+        val v0 = (textureIndex / 16) / 16f
+        val uSize = 1f/16f
+        val vSize = 1f/16f
 
-        val u0 = uv[0]
-        val v0 = uv[1]
-        val u1 = uv[0] + (uv[2] - uv[0]) * w
-        val v1 = uv[1] + (uv[3] - uv[1]) * h
+        val u1 = u0 + uSize * width
+        val v1 = v0 + vSize * height
 
-        val ao = getAO(face)
+        // TODO: Implement a real Ambient Occlusion calculation
+        val ao = floatArrayOf(1.0f, 1.0f, 1.0f, 1.0f)
+
+        val x1 = sliceX.toFloat()
+        val y1 = sliceY.toFloat()
+        val x2 = (sliceX + width).toFloat()
+        val y2 = (sliceY + height).toFloat()
+        val l = layer.toFloat()
 
         when (face) {
-            Face.TOP, Face.SOUTH, Face.EAST -> {
-                addVertex(x0, y0, z0, u0, v0, ao[0], face)
-                addVertex(x1, y0, z0, u1, v0, ao[1], face)
-                addVertex(x1, y1, z1, u1, v1, ao[2], face)
-                addVertex(x0, y0, z0, u0, v0, ao[0], face)
-                addVertex(x1, y1, z1, u1, v1, ao[2], face)
-                addVertex(x0, y1, z1, u0, v1, ao[3], face)
+            Face.TOP -> { // +Y
+                val y = l + 1f - Chunk.MIN_Y
+                addVertex(x1, y, y1, u0, v0, ao[0], 0f, 1f, 0f)
+                addVertex(x1, y, y2, u0, v1, ao[3], 0f, 1f, 0f)
+                addVertex(x2, y, y2, u1, v1, ao[2], 0f, 1f, 0f)
+                addVertex(x1, y, y1, u0, v0, ao[0], 0f, 1f, 0f)
+                addVertex(x2, y, y2, u1, v1, ao[2], 0f, 1f, 0f)
+                addVertex(x2, y, y1, u1, v0, ao[1], 0f, 1f, 0f)
             }
-            else -> {
-                addVertex(x0, y0, z0, u0, v0, ao[0], face)
-                addVertex(x0, y1, z1, u0, v1, ao[3], face)
-                addVertex(x1, y1, z1, u1, v1, ao[2], face)
-                addVertex(x0, y0, z0, u0, v0, ao[0], face)
-                addVertex(x1, y1, z1, u1, v1, ao[2], face)
-                addVertex(x1, y0, z0, u1, v0, ao[1], face)
+            Face.BOTTOM -> { // -Y
+                val y = l.toFloat() - Chunk.MIN_Y
+                addVertex(x1, y, y1, u0, v0, ao[0], 0f, -1f, 0f)
+                addVertex(x2, y, y1, u1, v0, ao[1], 0f, -1f, 0f)
+                addVertex(x2, y, y2, u1, v1, ao[2], 0f, -1f, 0f)
+                addVertex(x1, y, y1, u0, v0, ao[0], 0f, -1f, 0f)
+                addVertex(x2, y, y2, u1, v1, ao[2], 0f, -1f, 0f)
+                addVertex(x1, y, y2, u0, v1, ao[3], 0f, -1f, 0f)
+            }
+            Face.NORTH -> { // -Z
+                val z = l.toFloat()
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f) // Top-Left
+                addVertex(x1, y2, z, u0, v1, ao[3], 0f, 0f, -1f) // Bottom-Left
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f) // Bottom-Right
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f) // Top-Left
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f) // Bottom-Right
+                addVertex(x2, y1, z, u1, v0, ao[1], 0f, 0f, -1f) // Top-Right
+            }
+            Face.SOUTH -> { // +Z
+                val z = l.toFloat() + 1
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, 1f)
+                addVertex(x2, y1, z, u1, v0, ao[1], 0f, 0f, 1f)
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, 1f)
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, 1f)
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, 1f)
+                addVertex(x1, y2, z, u0, v1, ao[3], 0f, 0f, 1f)
+            }
+            Face.EAST -> { // +X
+                val x = l.toFloat() + 1
+                addVertex(x, y1, x1, u0, v0, ao[0], 1f, 0f, 0f)
+                addVertex(x, y1, x2, u1, v0, ao[1], 1f, 0f, 0f)
+                addVertex(x, y2, x2, u1, v1, ao[2], 1f, 0f, 0f)
+                addVertex(x, y1, x1, u0, v0, ao[0], 1f, 0f, 0f)
+                addVertex(x, y2, x2, u1, v1, ao[2], 1f, 0f, 0f)
+                addVertex(x, y2, x1, u0, v1, ao[3], 1f, 0f, 0f)
+            }
+            Face.WEST -> { // -X
+                val x = l.toFloat()
+                addVertex(x, y1, x1, u0, v0, ao[0], -1f, 0f, 0f)
+                addVertex(x, y2, x1, u0, v1, ao[3], -1f, 0f, 0f)
+                addVertex(x, y2, x2, u1, v1, ao[2], -1f, 0f, 0f)
+                addVertex(x, y1, x1, u0, v0, ao[0], -1f, 0f, 0f)
+                addVertex(x, y2, x2, u1, v1, ao[2], -1f, 0f, 0f)
+                addVertex(x, y1, x2, u1, v0, ao[1], -1f, 0f, 0f)
             }
         }
     }
 
-    private fun addVertex(x: Float, y: Float, z: Float, u: Float, v: Float, ao: Float, face: Face) {
-        vertices.add(x + chunk.x * 16f)
+    private fun addVertex(x: Float, y: Float, z: Float, u: Float, v: Float, ao: Float, nx: Float, ny: Float, nz: Float) {
+        // Position (in world space)
+        vertices.add(x + chunk.x * Chunk.WIDTH)
         vertices.add(y)
-        vertices.add(z + chunk.z * 16f)
+        vertices.add(z + chunk.z * Chunk.DEPTH)
+        // Texture Coords
         vertices.add(u)
         vertices.add(v)
+        // Ambient Occlusion
         vertices.add(ao)
-
-        val normal = when (face) {
-            Face.TOP -> Triple(0f, 1f, 0f)
-            Face.BOTTOM -> Triple(0f, -1f, 0f)
-            Face.NORTH -> Triple(0f, 0f, -1f)
-            Face.SOUTH -> Triple(0f, 0f, 1f)
-            Face.EAST -> Triple(1f, 0f, 0f)
-            Face.WEST -> Triple(-1f, 0f, 0f)
-        }
-        vertices.add(normal.first)
-        vertices.add(normal.second)
-        vertices.add(normal.third)
-    }
-
-    private fun getQuadCorners(x: Int, y: Int, z: Int, w: Int, h: Int, face: Face): FloatArray {
-        return when (face) {
-            Face.TOP -> floatArrayOf(
-                x.toFloat(), (y + 1).toFloat(), (z + 1).toFloat(),
-                (x + w).toFloat(), (y + 1).toFloat(), z.toFloat()
-            )
-            Face.BOTTOM -> floatArrayOf(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                (x + w).toFloat(), y.toFloat(), (z + 1).toFloat()
-            )
-            Face.NORTH -> floatArrayOf(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                (x + w).toFloat(), (y + h).toFloat(), z.toFloat()
-            )
-            Face.SOUTH -> floatArrayOf(
-                x.toFloat(), y.toFloat(), (z + 1).toFloat(),
-                (x + w).toFloat(), (y + h).toFloat(), (z + 1).toFloat()
-            )
-            Face.EAST -> floatArrayOf(
-                (x + 1).toFloat(), y.toFloat(), z.toFloat(),
-                (x + 1).toFloat(), (y + h).toFloat(), (z + w).toFloat()
-            )
-            Face.WEST -> floatArrayOf(
-                x.toFloat(), y.toFloat(), z.toFloat(),
-                x.toFloat(), (y + h).toFloat(), (z + w).toFloat()
-            )
-        }
-    }
-
-    private fun getAO(face: Face): FloatArray {
-        return floatArrayOf(0.85f, 0.85f, 0.85f, 0.85f)
+        // Normal Vector
+        vertices.add(nx)
+        vertices.add(ny)
+        vertices.add(nz)
     }
 
     private fun getAxisDimensions(face: Face): Triple<Int, Int, Int> {
         return when (face) {
-            Face.TOP, Face.BOTTOM -> Triple(chunk.width, chunk.depth, chunk.height)
-            Face.NORTH, Face.SOUTH -> Triple(chunk.width, chunk.height, chunk.depth)
-            Face.EAST, Face.WEST -> Triple(chunk.depth, chunk.height, chunk.width)
+            Face.TOP, Face.BOTTOM -> Triple(Chunk.WIDTH, Chunk.DEPTH, Chunk.HEIGHT)
+            Face.NORTH, Face.SOUTH -> Triple(Chunk.WIDTH, Chunk.HEIGHT, Chunk.DEPTH)
+            Face.EAST, Face.WEST -> Triple(Chunk.DEPTH, Chunk.HEIGHT, Chunk.WIDTH)
         }
     }
 
-    private fun mapToWorld(x: Int, y: Int, layer: Int, face: Face): Triple<Int, Int, Int> {
+    private fun mapToChunkCoords(x: Int, y: Int, layer: Int, face: Face): Triple<Int, Int, Int> {
         return when (face) {
-            Face.TOP, Face.BOTTOM -> Triple(x, layer - 128, y)
-            Face.NORTH, Face.SOUTH -> Triple(x, y - 128, layer)
-            Face.EAST, Face.WEST -> Triple(layer, y - 128, x)
+            Face.TOP, Face.BOTTOM -> Triple(x, layer + Chunk.MIN_Y, y)
+            Face.NORTH, Face.SOUTH -> Triple(x, y + Chunk.MIN_Y, layer)
+            Face.EAST, Face.WEST -> Triple(layer, y + Chunk.MIN_Y, x)
         }
-    }
-
-    private fun getTextureIndex(blockId: Int, face: Face): Int {
-        val block = Blocks.getById(blockId)
-        return when (face) {
-            Face.TOP -> block.topTexture
-            Face.BOTTOM -> block.bottomTexture
-            else -> block.sideTexture
-        }
-    }
-
-    private fun isOpaque(blockId: Int): Boolean {
-        return Blocks.getById(blockId).isOpaque
     }
 
     private fun uploadToGPU() {
-        if (vertices.isEmpty()) return
+        if (vertices.isEmpty()) {
+            vertexCount = 0
+            return
+        }
 
-        vao = glGenVertexArrays()
+        if (vao == 0) vao = glGenVertexArrays()
         glBindVertexArray(vao)
 
-        vbo = glGenBuffers()
+        if (vbo == 0) vbo = glGenBuffers()
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
 
         val buffer: FloatBuffer = MemoryUtil.memAllocFloat(vertices.size)
         buffer.put(vertices.toFloatArray()).flip()
 
         glBufferData(GL_ARRAY_BUFFER, buffer, GL_STATIC_DRAW)
+        MemoryUtil.memFree(buffer)
 
+        // Vertex format: 3 pos, 2 uv, 1 ao, 3 normal (9 floats total)
         val stride = 9 * Float.SIZE_BYTES
-
+        // Position
         glVertexAttribPointer(0, 3, GL_FLOAT, false, stride, 0)
         glEnableVertexAttribArray(0)
-
+        // Texture UV
         glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, (3 * Float.SIZE_BYTES).toLong())
         glEnableVertexAttribArray(1)
-
+        // Ambient Occlusion
         glVertexAttribPointer(2, 1, GL_FLOAT, false, stride, (5 * Float.SIZE_BYTES).toLong())
         glEnableVertexAttribArray(2)
-
+        // Normal
         glVertexAttribPointer(3, 3, GL_FLOAT, false, stride, (6 * Float.SIZE_BYTES).toLong())
         glEnableVertexAttribArray(3)
 
         glBindVertexArray(0)
 
         vertexCount = vertices.size / 9
-
-        MemoryUtil.memFree(buffer)
     }
 
     fun render() {
@@ -271,7 +277,14 @@ class ChunkMesh(private val chunk: Chunk) {
     }
 
     fun cleanup() {
-        if (vbo != 0) glDeleteBuffers(vbo)
-        if (vao != 0) glDeleteVertexArrays(vao)
+        if (vbo != 0) {
+            glDeleteBuffers(vbo)
+            vbo = 0
+        }
+        if (vao != 0) {
+            glDeleteVertexArrays(vao)
+            vao = 0
+        }
+        vertexCount = 0
     }
 }

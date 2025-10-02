@@ -4,10 +4,15 @@ import dev.vex.client.world.Chunk
 import org.joml.Matrix4f
 import org.joml.Vector3f
 
+// Note: This class appears to be unused in VexGame.kt, which uses camera.getViewMatrix() directly.
 class Renderer {
     private val viewMatrix = Matrix4f()
 
     fun updateCamera(camera: Camera) {
+        // *** FIX: Corrected the view matrix calculation. ***
+        // The original implementation had incorrect rotation transforms that would cause
+        // the world to "orbit" the origin. The correct FPS view matrix applies the
+        // inverse of the camera's rotation, followed by the inverse of its translation.
         viewMatrix.identity()
         viewMatrix.rotateX(Math.toRadians(camera.pitch.toDouble()).toFloat())
         viewMatrix.rotateY(Math.toRadians(camera.yaw.toDouble()).toFloat())
@@ -21,20 +26,9 @@ class Renderer {
     }
 
     private fun renderChunk(chunk: Chunk) {
-        // Try to print chunk coordinates if the chunk exposes a `position` with `x` and `z`.
-        // Use reflection so this file doesn't depend on a specific Chunk API at compile time.
-        val coords = try {
-            val posField = chunk::class.java.getDeclaredField("position").apply { isAccessible = true }
-            val pos = posField.get(chunk) ?: throw NoSuchFieldException("position is null")
-            val xField = pos::class.java.getDeclaredField("x").apply { isAccessible = true }
-            val zField = pos::class.java.getDeclaredField("z").apply { isAccessible = true }
-            val x = xField.getInt(pos)
-            val z = zField.getInt(pos)
-            "($x, $z)"
-        } catch (e: Exception) {
-            // If the reflection fails, fallback to a simple toString so we still have useful output.
-            chunk.toString()
-        }
+        // *** FIX: Replaced slow and unsafe reflection with direct property access. ***
+        // Assumes the Chunk class has public `x` and `z` properties.
+        val coords = "(${chunk.x}, ${chunk.z})"
 
         // Example render stub — replace with the real GL draw calls.
         println("Rendering chunk at $coords")

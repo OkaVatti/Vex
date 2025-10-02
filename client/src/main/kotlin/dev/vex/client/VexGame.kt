@@ -1,5 +1,6 @@
 package dev.vex.client
 
+import dev.vex.client.menu.MenuNavigator
 import dev.vex.client.render.*
 import dev.vex.client.world.*
 import org.lwjgl.glfw.GLFW.*
@@ -7,6 +8,7 @@ import org.lwjgl.glfw.GLFWErrorCallback
 import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11.*
 import org.joml.Matrix4f
+import kotlin.system.exitProcess
 
 /**
  * Main game class - Beta 1.7.3 style Minecraft clone
@@ -23,6 +25,7 @@ class VexGame {
     private lateinit var shader: ShaderProgram
     private lateinit var stateManager: GameStateManager
     private lateinit var uiRenderer: UIRenderer
+    private lateinit var menuNavigator: MenuNavigator
 
     // Timing
     private var lastFrameTime = 0.0
@@ -52,20 +55,18 @@ class VexGame {
         }
 
         // OpenGL 3.3 Core Profile
+        // OpenGL 3.3 Compatibility Profile (allows legacy fixed-function calls used by UI)
         glfwDefaultWindowHints()
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3)
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3)
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE)
-        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE)
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE)
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE)
+        // Request compatibility profile so legacy glMatrixMode/glBegin/etc. are available on platforms that support it
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE)
+        // Avoid forcing forward-compatibility (which removes deprecated functions)
 
         window = glfwCreateWindow(width, height, "Vex - Beta 1.7.3 Recreation", 0, 0)
         if (window == 0L) {
             throw RuntimeException("Failed to create GLFW window")
         }
-
-        setupCallbacks()
 
         glfwMakeContextCurrent(window)
         glfwSwapInterval(1) // V-Sync
@@ -84,7 +85,8 @@ class VexGame {
         camera = Camera()
         world = World()
         stateManager = GameStateManager()
-        uiRenderer = UIRenderer(width, height)
+        menuNavigator = MenuNavigator()
+        uiRenderer = UIRenderer(width, height, menuNavigator)
 
         // Load texture atlas
         blockAtlas = TextureAtlas("assets/textures/blocks.png")
@@ -125,56 +127,83 @@ class VexGame {
         println("  Shift - Sprint")
         println("  Ctrl - Sneak")
         println("  ESC - Pause/Menu")
+
+        setupCallbacks()
     }
 
     private fun createPlaceholderAtlas() {
         // Create simple colored texture atlas programmatically
-        // This is a fallback if the PNG file isn't available
         blockAtlas = TextureAtlas.createPlaceholder()
     }
 
     private fun setupCallbacks() {
+        // Key callback routes input to either menu navigation or game depending on state
         glfwSetKeyCallback(window) { _, key, _, action, _ ->
             if (key in 0 until GLFW_KEY_LAST) {
                 keys[key] = action != GLFW_RELEASE
             }
 
-            // Handle state-specific input
-            if (stateManager.handleInput(key, action)) {
-                // State manager handled this input
-                if (stateManager.isPlaying()) {
-                    // Entering game - capture mouse
-                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED)
-                    firstMouse = true
-                } else {
-                    // Leaving game - release mouse
-                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL)
+            // If we're in title screen or paused, let the menu navigator handle keys
+            if (stateManager.isTitleScreen() || stateManager.isPaused()) {
+                if (menuNavigator.handleKeyPress(key, action)) {
+                    // menu consumed the key
+                    return@glfwSetKeyCallback
+                }
+            } else {
+                // in-game: stateManager handles ESC to pause; otherwise game input is read in update loop
+                if (stateManager.handleInput(key, action)) {
+                    // state manager consumed the key (e.g. ESC)
+                    return@glfwSetKeyCallback
                 }
             }
         }
 
-        glfwSetCursorPosCallback(window) { _, xpos, ypos ->
-            if (!stateManager.isPlaying()) return@glfwSetCursorPosCallback
+        // Character input (text) for menus
+        glfwSetCharCallback(window) { _, codepoint ->
+            if (stateManager.isTitleScreen() || stateManager.isPaused()) {
+                val ch = codepoint.toChar()
+                menuNavigator.handleCharInput(ch)
+            }
+        }
 
-            if (firstMouse) {
+        glfwSetCursorPosCallback(window) { _, xpos, ypos ->
+            if (stateManager.isPlaying()) {
+                if (firstMouse) {
+                    lastX = xpos
+                    lastY = ypos
+                    firstMouse = false
+                }
+
+                val xoffset = (xpos - lastX).toFloat()
+                val yoffset = (lastY - ypos).toFloat()
+
                 lastX = xpos
                 lastY = ypos
-                firstMouse = false
+
+                camera.processMouseMovement(xoffset, yoffset)
+            } else {
+                // Route mouse movement to UI for menu hover detection
+                uiRenderer.onMouseMove(xpos.toFloat(), ypos.toFloat())
             }
+        }
 
-            val xoffset = (xpos - lastX).toFloat()
-            val yoffset = (lastY - ypos).toFloat()
-
-            lastX = xpos
-            lastY = ypos
-
-            camera.processMouseMovement(xoffset, yoffset)
+        glfwSetMouseButtonCallback(window) { _, button, action, _ ->
+            if (action == GLFW_PRESS && (stateManager.isTitleScreen() || stateManager.isPaused())) {
+                // Get cursor pos and forward to UI renderer
+                val px = DoubleArray(1)
+                val py = DoubleArray(1)
+                glfwGetCursorPos(window, px, py)
+                uiRenderer.onMouseClick(px[0].toFloat(), py[0].toFloat())
+            }
         }
 
         glfwSetFramebufferSizeCallback(window) { _, w, h ->
-            width = w
-            height = h
-            glViewport(0, 0, w, h)
+            if (w > 0 && h > 0) {
+                width = w
+                height = h
+                glViewport(0, 0, w, h)
+                uiRenderer.onResize(w, h)
+            }
         }
     }
 
@@ -241,7 +270,7 @@ class VexGame {
         shader.bind()
 
         // Set uniforms
-        val aspectRatio = width.toFloat() / height.toFloat()
+        val aspectRatio = if (height > 0) width.toFloat() / height.toFloat() else 1.0f
         shader.setUniform("projectionMatrix", camera.getProjectionMatrix(aspectRatio))
         shader.setUniform("viewMatrix", camera.getViewMatrix())
         shader.setUniform("modelMatrix", Matrix4f())
@@ -271,20 +300,19 @@ class VexGame {
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
         uiRenderer.renderTitleScreen(
-            stateManager.getMenuItems(),
-            stateManager.getSelectedMenuItem()
+            menuNavigator.getMenuItems(),
+            menuNavigator.selectedIndex
         )
     }
 
     private fun renderPauseMenu() {
         uiRenderer.renderPauseMenu(
-            stateManager.getMenuItems(),
-            stateManager.getSelectedMenuItem()
+            menuNavigator.getMenuItems(),
+            menuNavigator.selectedIndex
         )
     }
 
     private fun getSkyColor(): FloatArray {
-        // Beta 1.7.3 sky color
         return floatArrayOf(0.53f, 0.81f, 0.98f)
     }
 
@@ -305,6 +333,6 @@ fun main() {
         VexGame().run()
     } catch (e: Exception) {
         e.printStackTrace()
-        System.exit(-1)
+        exitProcess(-1)
     }
 }

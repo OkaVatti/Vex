@@ -19,13 +19,16 @@ class MenuNavigator {
 
     // Text input state
     private var textInput = ""
-    private var isTyping = false
+    private var typing = false
+
+    // Quit flag (UI asks menu navigator whether the game should exit)
+    private var quitRequested = false
 
     fun handleKeyPress(key: Int, action: Int): Boolean {
         if (action != GLFW_PRESS) return false
 
         // Handle text input mode
-        if (isTyping) {
+        if (typing) {
             return handleTextInput(key)
         }
 
@@ -53,7 +56,7 @@ class MenuNavigator {
     }
 
     fun handleCharInput(char: Char) {
-        if (isTyping) {
+        if (typing) {
             textInput += char
         }
     }
@@ -67,12 +70,12 @@ class MenuNavigator {
                 return true
             }
             GLFW_KEY_ENTER -> {
-                isTyping = false
+                typing = false
                 applyTextInput()
                 return true
             }
             GLFW_KEY_ESCAPE -> {
-                isTyping = false
+                typing = false
                 textInput = ""
                 return true
             }
@@ -100,7 +103,8 @@ class MenuNavigator {
         textInput = ""
     }
 
-    private fun handleSelection() {
+    // Public so UI can call it on mouse click
+    fun handleSelection() {
         when (val state = currentState) {
             MenuState.MainMenu -> handleMainMenuSelection()
             MenuState.SingleplayerMenu -> handleSingleplayerSelection()
@@ -137,7 +141,7 @@ class MenuNavigator {
                 selectedIndex = 0
             }
             4 -> { // Quit
-                System.exit(0)
+                quitRequested = true
             }
         }
     }
@@ -162,11 +166,9 @@ class MenuNavigator {
 
     private fun handleWorldListSelection(state: MenuState.WorldList) {
         if (selectedIndex < state.worlds.size) {
-            // Play selected world
             val world = state.worlds[selectedIndex]
             currentState = MenuState.Playing(world.name)
         } else if (selectedIndex == state.worlds.size) {
-            // Back
             currentState = MenuState.SingleplayerMenu
             selectedIndex = 0
         }
@@ -174,66 +176,31 @@ class MenuNavigator {
 
     private fun handleCreateWorldSelection(state: MenuState.CreateWorld) {
         when (selectedIndex) {
-            0 -> { // World Name input
-                isTyping = true
-                textInput = state.worldName
-            }
-            1 -> { // Seed input
-                isTyping = true
-                textInput = state.seed
-            }
-            2 -> { // Biome Size cycle
-                state.biomeSize = when (state.biomeSize) {
-                    "Small" -> "Normal"
-                    "Normal" -> "Large"
-                    else -> "Small"
-                }
-            }
-            3 -> { // Structures toggle
-                state.structures = !state.structures
-            }
-            4 -> { // Create World
-                val world = worldManager.createWorld(
-                    state.worldName,
-                    state.seed,
-                    state.biomeSize,
-                    state.structures
-                )
+            0 -> { typing = true; textInput = state.worldName }
+            1 -> { typing = true; textInput = state.seed }
+            2 -> { state.biomeSize = when (state.biomeSize) { "Small" -> "Normal"; "Normal" -> "Large"; else -> "Small" } }
+            3 -> { state.structures = !state.structures }
+            4 -> {
+                val world = worldManager.createWorld(state.worldName, state.seed, state.biomeSize, state.structures)
                 currentState = MenuState.Playing(world.name)
             }
-            5 -> { // Cancel
-                currentState = MenuState.SingleplayerMenu
-                selectedIndex = 0
-            }
+            5 -> { currentState = MenuState.SingleplayerMenu; selectedIndex = 0 }
         }
     }
 
     private fun handleMultiplayerSelection() {
         when (selectedIndex) {
-            0 -> { // Server List
-                val servers = serverManager.getServers()
-                currentState = MenuState.ServerList(servers)
-                selectedIndex = 0
-            }
-            1 -> { // Add Server
-                currentState = MenuState.AddServer()
-                selectedIndex = 0
-            }
-            2 -> { // Back
-                currentState = MenuState.MainMenu
-                selectedIndex = 0
-            }
+            0 -> { val servers = serverManager.getServers(); currentState = MenuState.ServerList(servers); selectedIndex = 0 }
+            1 -> { currentState = MenuState.AddServer(); selectedIndex = 0 }
+            2 -> { currentState = MenuState.MainMenu; selectedIndex = 0 }
         }
     }
 
     private fun handleServerListSelection(state: MenuState.ServerList) {
         if (selectedIndex < state.servers.size) {
-            // Connect to server
             val server = state.servers[selectedIndex]
             println("Connecting to ${server.name} at ${server.ip}:${server.port}")
-            // TODO: Implement actual connection
         } else if (selectedIndex == state.servers.size) {
-            // Back
             currentState = MenuState.MultiplayerMenu
             selectedIndex = 0
         }
@@ -241,47 +208,19 @@ class MenuNavigator {
 
     private fun handleAddServerSelection(state: MenuState.AddServer) {
         when (selectedIndex) {
-            0 -> { // Server Name
-                isTyping = true
-                textInput = state.serverName
-            }
-            1 -> { // IP Address
-                isTyping = true
-                textInput = state.serverIP
-            }
-            2 -> { // Port
-                isTyping = true
-                textInput = state.port
-            }
-            3 -> { // Add Server
-                val port = state.port.toIntOrNull() ?: 25565
-                serverManager.addServer(state.serverName, state.serverIP, port)
-                currentState = MenuState.MultiplayerMenu
-                selectedIndex = 0
-            }
-            4 -> { // Connect
-                println("Connecting to ${state.serverIP}:${state.port}")
-                // TODO: Implement connection
-            }
-            5 -> { // Cancel
-                currentState = MenuState.MultiplayerMenu
-                selectedIndex = 0
-            }
+            0 -> { typing = true; textInput = state.serverName }
+            1 -> { typing = true; textInput = state.serverIP }
+            2 -> { typing = true; textInput = state.port }
+            3 -> { val port = state.port.toIntOrNull() ?: 25565; serverManager.addServer(state.serverName, state.serverIP, port); currentState = MenuState.MultiplayerMenu; selectedIndex = 0 }
+            4 -> { println("Connecting to ${state.serverIP}:${state.port}") }
+            5 -> { currentState = MenuState.MultiplayerMenu; selectedIndex = 0 }
         }
     }
 
     private fun handleLANSelection() {
         when (selectedIndex) {
-            0 -> { // LAN World List
-                val lanWorlds = lanManager.getDiscoveredWorlds()
-                currentState = MenuState.LANWorldList(lanWorlds)
-                selectedIndex = 0
-            }
-            1 -> { // Back
-                lanManager.stopDiscovery()
-                currentState = MenuState.MainMenu
-                selectedIndex = 0
-            }
+            0 -> { val lanWorlds = lanManager.getDiscoveredWorlds(); currentState = MenuState.LANWorldList(lanWorlds); selectedIndex = 0 }
+            1 -> { lanManager.stopDiscovery(); currentState = MenuState.MainMenu; selectedIndex = 0 }
         }
     }
 
@@ -289,7 +228,6 @@ class MenuNavigator {
         if (selectedIndex < state.lanWorlds.size) {
             val world = state.lanWorlds[selectedIndex]
             println("Joining LAN world: ${world.worldName} at ${world.ip}:${world.port}")
-            // TODO: Implement LAN connection
         } else if (selectedIndex == state.lanWorlds.size) {
             currentState = MenuState.LANMenu
             selectedIndex = 0
@@ -298,33 +236,16 @@ class MenuNavigator {
 
     private fun handleSettingsSelection() {
         when (selectedIndex) {
-            0 -> { // FOV (handled by slider in renderer)
-            }
-            1 -> { // Render Distance (cycle)
-                settings.renderDistance = when (settings.renderDistance) {
-                    4 -> 8
-                    8 -> 12
-                    12 -> 16
-                    else -> 4
-                }
-            }
-            2 -> { // VSync toggle
-                settings.vsync = !settings.vsync
-            }
-            3 -> { // Controls
-                currentState = MenuState.ControlsMenu
-                selectedIndex = 0
-            }
-            4 -> { // Back
-                currentState = MenuState.MainMenu
-                selectedIndex = 0
-            }
+            0 -> {}
+            1 -> { settings.renderDistance = when (settings.renderDistance) { 4 -> 8; 8 -> 12; 12 -> 16; else -> 4 } }
+            2 -> { settings.vsync = !settings.vsync }
+            3 -> { currentState = MenuState.ControlsMenu; selectedIndex = 0 }
+            4 -> { currentState = MenuState.MainMenu; selectedIndex = 0 }
         }
     }
 
     private fun handleControlsSelection() {
-        // TODO: Implement key rebinding
-        if (selectedIndex == 12) { // Back button
+        if (selectedIndex == 12) {
             currentState = MenuState.SettingsMenu
             selectedIndex = 0
         }
@@ -415,6 +336,13 @@ class MenuNavigator {
 
     fun isPlaying() = currentState is MenuState.Playing
     fun isPaused() = currentState is MenuState.Paused
-    fun isTyping() = isTyping
+    fun isTyping() = typing
     fun getCurrentInput() = textInput
+
+    // Public small helpers for UI
+    fun setSelectedIndex(index: Int) {
+        selectedIndex = index
+    }
+
+    fun isQuitRequested(): Boolean = quitRequested
 }

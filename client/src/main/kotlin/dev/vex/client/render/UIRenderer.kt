@@ -1,247 +1,290 @@
 package dev.vex.client.render
 
-import org.lwjgl.opengl.GL30.*
-import org.lwjgl.system.MemoryUtil
-import org.joml.Matrix4f
-import java.nio.FloatBuffer
+import dev.vex.client.menu.MenuNavigator
+import org.joml.Vector3f
+import org.lwjgl.opengl.GL11.*
+import kotlin.math.floor
 
-/**
- * Renders UI elements using modern OpenGL (no fixed-function pipeline)
- */
-class UIRenderer(private val width: Int, private val height: Int) {
-
-    private var vao = 0
-    private var vbo = 0
-    private var uiShader: UIShader? = null
+class UIRenderer(private var width: Int, private var height: Int, private val navigator: MenuNavigator) {
+    private val itemHeight = 48f
+    private val itemSpacing = 12f
+    private val menuWidthFraction = 0.5f
+    private var hoverIndex: Int = -1
+    private var font: FontRenderer? = null
+    private var consoleOnly = false
 
     init {
-        setupUIRendering()
+        try {
+            font = FontRenderer("SansSerif", java.awt.Font.PLAIN, 20)
+        } catch (e: Throwable) {
+            consoleOnly = true
+            println("FontRenderer unavailable: ${e.message}. Falling back to console-only UI.")
+        }
     }
 
-    private fun setupUIRendering() {
-        // Create VAO and VBO for UI quads
-        vao = glGenVertexArrays()
-        vbo = glGenBuffers()
+    fun onResize(w: Int, h: Int) {
+        this.width = w
+        this.height = h
+    }
 
-        glBindVertexArray(vao)
-        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+    fun cleanup() {
+        font?.cleanup()
+    }
 
-        // Allocate buffer (we'll update it per frame)
-        glBufferData(GL_ARRAY_BUFFER, 1024 * 4, GL_DYNAMIC_DRAW)
+    fun onMouseMove(mx: Float, my: Float) {
+        if (consoleOnly) return
+        val items = navigator.getMenuItems()
+        if (items.isEmpty()) {
+            hoverIndex = -1
+            return
+        }
+        val menuWidth = width * menuWidthFraction
+        val menuLeft = (width - menuWidth) / 2f
+        val totalHeight = items.size * itemHeight + (items.size - 1) * itemSpacing
+        val menuTop = (height / 2f) - (totalHeight / 2f)
 
-        // Position attribute (2D)
-        glVertexAttribPointer(0, 2, GL_FLOAT, false, 16, 0)
-        glEnableVertexAttribArray(0)
+        if (mx < menuLeft || mx > menuLeft + menuWidth) {
+            hoverIndex = -1
+            return
+        }
+        val relativeY = my - menuTop
+        if (relativeY < 0f || relativeY > totalHeight) {
+            hoverIndex = -1
+            return
+        }
+        val idx = floor(relativeY / (itemHeight + itemSpacing)).toInt().coerceAtLeast(0)
+        hoverIndex = if (idx in items.indices) idx else -1
+        if (hoverIndex >= 0) {
+            navigator.setSelectedIndex(hoverIndex)
+        }
+    }
 
-        // Color attribute
-        glVertexAttribPointer(1, 4, GL_FLOAT, false, 16, 8)
-        glEnableVertexAttribArray(1)
+    fun onMouseClick(mx: Float, my: Float) {
+        if (consoleOnly) {
+            println("Menu click at: $mx,$my (console-only mode)")
+            val items = navigator.getMenuItems()
+            items.forEachIndexed { i, s -> println("$i: $s") }
+            return
+        }
+        val items = navigator.getMenuItems()
+        if (items.isEmpty()) return
 
-        glBindVertexArray(0)
+        val menuWidth = width * menuWidthFraction
+        val menuLeft = (width - menuWidth) / 2f
+        val totalHeight = items.size * itemHeight + (items.size - 1) * itemSpacing
+        val menuTop = (height / 2f) - (totalHeight / 2f)
 
-        // Create simple UI shader
-        uiShader = UIShader(width, height)
+        if (mx < menuLeft || mx > menuLeft + menuWidth) return
+
+        val relativeY = my - menuTop
+        if (relativeY < 0f || relativeY > totalHeight) return
+
+        val index = floor(relativeY / (itemHeight + itemSpacing)).toInt().coerceAtLeast(0)
+        navigator.setSelectedIndex(index)
+        navigator.handleSelection()
     }
 
     fun renderTitleScreen(menuItems: List<String>, selectedIndex: Int) {
-        uiShader?.use()
-        glDisable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
-        // Dark background
-        drawQuad(0f, 0f, width.toFloat(), height.toFloat(), 0.15f, 0.15f, 0.15f, 1f)
-
-        // Title text (simplified - just boxes for now)
-        val titleY = height * 0.25f
-        drawQuad(width / 2f - 80f, titleY, 160f, 40f, 1f, 1f, 0.5f, 1f)
-
-        // Menu items
-        val startY = height * 0.5f
-        val itemSpacing = 50f
-
-        menuItems.forEachIndexed { index, _ ->
-            val y = startY + index * itemSpacing
-            val isSelected = index == selectedIndex
-
-            if (isSelected) {
-                drawQuad(width / 2f - 110f, y, 220f, 40f, 0.8f, 0.8f, 0.8f, 0.9f)
-            } else {
-                drawQuad(width / 2f - 110f, y, 220f, 40f, 0.3f, 0.3f, 0.3f, 0.7f)
+        if (consoleOnly) {
+            println("=== TITLE SCREEN ===")
+            menuItems.forEachIndexed { i, it ->
+                val marker = if (i == selectedIndex) "->" else "  "
+                println("$marker $it")
             }
+            return
         }
 
-        glDisable(GL_BLEND)
-        glEnable(GL_DEPTH_TEST)
+        drawFullScreenQuad(0.12f, 0.12f, 0.12f)
+        drawCenteredText("Vex - Beta 1.7.3 Recreation", height / 6f, 1.6f)
+
+        renderMenu(menuItems, selectedIndex)
     }
 
     fun renderPauseMenu(menuItems: List<String>, selectedIndex: Int) {
-        uiShader?.use()
+        if (consoleOnly) {
+            println("=== PAUSE MENU ===")
+            menuItems.forEachIndexed { i, it ->
+                val marker = if (i == selectedIndex) "->" else "  "
+                println("$marker $it")
+            }
+            return
+        }
+
+        drawFullScreenQuad(0f, 0f, 0f, 0.6f)
+        renderMenu(menuItems, selectedIndex)
+    }
+
+    fun renderHUD(fps: Int, playerPos: Vector3f) {
+        if (consoleOnly) return
+        val text = "FPS: $fps  Pos: ${playerPos.x.toInt()},${playerPos.y.toInt()},${playerPos.z.toInt()}"
         glDisable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
 
-        // Dark overlay
-        drawQuad(0f, 0f, width.toFloat(), height.toFloat(), 0f, 0f, 0f, 0.7f)
+        font?.drawText(8f, 18f, text, 1.0f)
 
-        // Pause title
-        val titleY = height * 0.3f
-        drawQuad(width / 2f - 70f, titleY, 140f, 35f, 1f, 1f, 0.5f, 1f)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glEnable(GL_DEPTH_TEST)
+    }
 
-        // Menu items
-        val startY = height * 0.45f
-        val itemSpacing = 50f
+    private fun renderMenu(items: List<String>, selectedIndex: Int) {
+        val menuWidth = width * menuWidthFraction
+        val menuLeft = (width - menuWidth) / 2f
+        val totalHeight = items.size * itemHeight + (items.size - 1) * itemSpacing
+        val menuTop = (height / 2f) - (totalHeight / 2f)
 
-        menuItems.forEachIndexed { index, _ ->
-            val y = startY + index * itemSpacing
-            val isSelected = index == selectedIndex
+        for ((i, item) in items.withIndex()) {
+            val top = menuTop + i * (itemHeight + itemSpacing)
+            val bottom = top + itemHeight
+            val left = menuLeft
+            val right = menuLeft + menuWidth
 
-            if (isSelected) {
-                drawQuad(width / 2f - 110f, y, 220f, 40f, 0.8f, 0.8f, 0.8f, 0.9f)
+            if (i == selectedIndex) {
+                drawQuad(left, top, right, bottom, 0.25f, 0.55f, 0.9f, 1.0f)
             } else {
-                drawQuad(width / 2f - 110f, y, 220f, 40f, 0.3f, 0.3f, 0.3f, 0.7f)
+                drawQuad(left, top, right, bottom, 0.2f, 0.2f, 0.2f, 1.0f)
+            }
+
+            drawLineRect(left, top, right, bottom, 2f, 0f, 0f, 0f, 0.6f)
+
+            val centerX = (left + right) / 2f
+            val display = item
+
+            font?.let { fr ->
+                var approxWidth = 0f
+                for (ch in display) {
+                    val gi = fr.glyphInfos.getOrNull(ch.code)
+                    approxWidth += (gi?.xAdvance ?: fr.fontSize) * 1.0f
+                }
+                val startX = centerX - approxWidth / 2f
+                glDisable(GL_DEPTH_TEST)
+                glMatrixMode(GL_PROJECTION)
+                glPushMatrix()
+                glLoadIdentity()
+                glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+                glMatrixMode(GL_MODELVIEW)
+                glPushMatrix()
+                glLoadIdentity()
+
+                fr.drawText(startX, top + itemHeight / 2f + 8f, display, 1.0f)
+
+                glPopMatrix()
+                glMatrixMode(GL_PROJECTION)
+                glPopMatrix()
+                glMatrixMode(GL_MODELVIEW)
+                glEnable(GL_DEPTH_TEST)
             }
         }
-
-        glDisable(GL_BLEND)
-        glEnable(GL_DEPTH_TEST)
     }
 
-    fun renderHUD(fps: Int, position: org.joml.Vector3f) {
-        uiShader?.use()
+    private fun drawFullScreenQuad(r: Float, g: Float, b: Float, a: Float = 1.0f) {
         glDisable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
 
-        // FPS box
-        drawQuad(5f, 5f, 100f, 20f, 0f, 0f, 0f, 0.5f)
+        glColor4f(r, g, b, a)
+        glBegin(GL_QUADS)
+        glVertex2f(0f, 0f)
+        glVertex2f(width.toFloat(), 0f)
+        glVertex2f(width.toFloat(), height.toFloat())
+        glVertex2f(0f, height.toFloat())
+        glEnd()
 
-        // Position box
-        drawQuad(5f, 30f, 200f, 20f, 0f, 0f, 0f, 0.5f)
-
-        // Crosshair
-        val centerX = width / 2f
-        val centerY = height / 2f
-        val size = 2f
-        val length = 10f
-
-        // Horizontal
-        drawQuad(centerX - length, centerY - size, length * 2, size * 2, 1f, 1f, 1f, 0.8f)
-        // Vertical
-        drawQuad(centerX - size, centerY - length, size * 2, length * 2, 1f, 1f, 1f, 0.8f)
-
-        glDisable(GL_BLEND)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
         glEnable(GL_DEPTH_TEST)
     }
 
-    private fun drawQuad(x: Float, y: Float, width: Float, height: Float,
-                         r: Float, g: Float, b: Float, a: Float) {
-        val vertices = floatArrayOf(
-            // Position (x, y), Color (r, g, b, a)
-            x, y, r, g, b, a,
-            x + width, y, r, g, b, a,
-            x + width, y + height, r, g, b, a,
+    private fun drawQuad(left: Float, top: Float, right: Float, bottom: Float, r: Float, g: Float, b: Float, a: Float) {
+        glDisable(GL_DEPTH_TEST)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
 
-            x, y, r, g, b, a,
-            x + width, y + height, r, g, b, a,
-            x, y + height, r, g, b, a
-        )
+        glColor4f(r, g, b, a)
+        glBegin(GL_QUADS)
+        glVertex2f(left, top)
+        glVertex2f(right, top)
+        glVertex2f(right, bottom)
+        glVertex2f(left, bottom)
+        glEnd()
 
-        glBindVertexArray(vao)
-        glBindBuffer(GL_ARRAY_BUFFER, vbo)
-
-        val buffer = MemoryUtil.memAllocFloat(vertices.size)
-        buffer.put(vertices).flip()
-        glBufferSubData(GL_ARRAY_BUFFER, 0, buffer)
-        MemoryUtil.memFree(buffer)
-
-        glDrawArrays(GL_TRIANGLES, 0, 6)
-        glBindVertexArray(0)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glEnable(GL_DEPTH_TEST)
     }
 
-    fun cleanup() {
-        if (vbo != 0) glDeleteBuffers(vbo)
-        if (vao != 0) glDeleteVertexArrays(vao)
-        uiShader?.cleanup()
+    private fun drawLineRect(left: Float, top: Float, right: Float, bottom: Float, lineWidth: Float, r: Float, g: Float, b: Float, a: Float) {
+        glDisable(GL_DEPTH_TEST)
+        glLineWidth(lineWidth)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
+        glColor4f(r, g, b, a)
+        glBegin(GL_LINE_LOOP)
+        glVertex2f(left, top)
+        glVertex2f(right, top)
+        glVertex2f(right, bottom)
+        glVertex2f(left, bottom)
+        glEnd()
+
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+        glEnable(GL_DEPTH_TEST)
     }
-}
 
-/**
- * Simple shader for UI rendering
- */
-class UIShader(width: Int, height: Int) {
-    private var programId = 0
+    private fun drawCenteredText(text: String, y: Float, scale: Float = 1.0f) {
+        font?.let { fr ->
+            var approxWidth = 0f
+            for (ch in text) {
+                val gi = fr.glyphInfos.getOrNull(ch.code)
+                approxWidth += (gi?.xAdvance ?: fr.fontSize) * scale
+            }
+            val startX = (width / 2f) - approxWidth / 2f
+            glDisable(GL_DEPTH_TEST)
+            glMatrixMode(GL_PROJECTION)
+            glPushMatrix()
+            glLoadIdentity()
+            glOrtho(0.0, width.toDouble(), height.toDouble(), 0.0, -1.0, 1.0)
+            glMatrixMode(GL_MODELVIEW)
+            glPushMatrix()
+            glLoadIdentity()
 
-    private val vertexShader = """
-        #version 330 core
-        layout (location = 0) in vec2 position;
-        layout (location = 1) in vec4 color;
-        
-        out vec4 fragColor;
-        
-        uniform mat4 projection;
-        
-        void main() {
-            gl_Position = projection * vec4(position, 0.0, 1.0);
-            fragColor = color;
+            fr.drawText(startX, y, text, scale)
+
+            glPopMatrix()
+            glMatrixMode(GL_PROJECTION)
+            glPopMatrix()
+            glMatrixMode(GL_MODELVIEW)
+            glEnable(GL_DEPTH_TEST)
         }
-    """.trimIndent()
-
-    private val fragmentShader = """
-        #version 330 core
-        in vec4 fragColor;
-        out vec4 outColor;
-        
-        void main() {
-            outColor = fragColor;
-        }
-    """.trimIndent()
-
-    init {
-        programId = glCreateProgram()
-
-        val vs = compileShader(vertexShader, GL_VERTEX_SHADER)
-        val fs = compileShader(fragmentShader, GL_FRAGMENT_SHADER)
-
-        glAttachShader(programId, vs)
-        glAttachShader(programId, fs)
-        glLinkProgram(programId)
-
-        if (glGetProgrami(programId, GL_LINK_STATUS) == 0) {
-            throw RuntimeException("Error linking UI shader: ${glGetProgramInfoLog(programId)}")
-        }
-
-        glDeleteShader(vs)
-        glDeleteShader(fs)
-
-        // Set orthographic projection
-        use()
-        val projLocation = glGetUniformLocation(programId, "projection")
-        val projection = Matrix4f().ortho(0f, width.toFloat(), height.toFloat(), 0f, -1f, 1f)
-
-        val buffer = MemoryUtil.memAllocFloat(16)
-        projection.get(buffer)
-        glUniformMatrix4fv(projLocation, false, buffer)
-        MemoryUtil.memFree(buffer)
-    }
-
-    private fun compileShader(source: String, type: Int): Int {
-        val shader = glCreateShader(type)
-        glShaderSource(shader, source)
-        glCompileShader(shader)
-
-        if (glGetShaderi(shader, GL_COMPILE_STATUS) == 0) {
-            throw RuntimeException("Error compiling UI shader: ${glGetShaderInfoLog(shader)}")
-        }
-
-        return shader
-    }
-
-    fun use() {
-        glUseProgram(programId)
-    }
-
-    fun cleanup() {
-        if (programId != 0) glDeleteProgram(programId)
     }
 }
