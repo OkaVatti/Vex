@@ -6,10 +6,10 @@ import org.lwjgl.glfw.GLFW.*
  * Comprehensive game state model and manager.
  * This implementation is self-contained and avoids references to undefined constants.
  * It provides:
- *  - Title screen and main menu
- *  - Submenus for Singleplayer / Multiplayer / LAN / Settings
- *  - Playing / Paused states
- *  - A simple requestExit flag instead of directly calling GLFW inside the manager
+ * - Title screen and main menu
+ * - Submenus for Singleplayer / Multiplayer / LAN / Settings
+ * - Playing / Paused states
+ * - A simple requestExit flag instead of directly calling GLFW inside the manager
  */
 sealed class GameState {
     object TitleScreen : GameState()
@@ -292,6 +292,14 @@ class GameStateManager {
                 selectedIndex = 0
             }
         }
+    }
+
+    /**
+     * FIX: Added a method to allow external systems (like MenuNavigator callbacks)
+     * to transition the state to Playing.
+     */
+    fun startGame(worldName: String) {
+        currentState = GameState.Playing(worldName)
     }
 
     fun isPlaying(): Boolean = currentState is GameState.Playing

@@ -3,16 +3,9 @@ package dev.vex.client.menu
 import org.lwjgl.glfw.GLFW.*
 
 /**
- * Menu navigation and input handling.
- *
- * This class:
- *  - exposes the current menu items via getMenuItems()
- *  - tracks selectedIndex
- *  - handles keyboard navigation and char input
- *  - supports a MenuListener to react to important events (create/start/join/quit)
+ * Menu navigation and input handling based on a tree of MenuNodes.
  */
 class MenuNavigator {
-    // Build the tree
     private val root: MenuNode = MenuBuilder.createMainMenu()
     private val stack = ArrayDeque<MenuNode>()
 
@@ -24,9 +17,13 @@ class MenuNavigator {
 
     var listener: MenuListener? = null
 
-    // Public API used by UIRenderer / VexGame
+    interface MenuListener {
+        fun onStartSingleplayer(name: String, seed: Long)
+        fun onJoinServer(ip: String, port: Int)
+        fun onQuit()
+    }
+
     fun getMenuItems(): List<String> {
-        // Show title + inputs inline
         return current.children.map { node ->
             if (node.isInput) {
                 "${node.title}: ${node.inputBuffer}"
@@ -36,89 +33,57 @@ class MenuNavigator {
         }
     }
 
-    /**
-     * Handle key presses.
-     * Return true if the event was consumed by the menu (VexGame uses this).
-     */
     fun handleKeyPress(key: Int, action: Int): Boolean {
         if (action != GLFW_PRESS && action != GLFW_REPEAT) return false
 
-        // If current node has zero children, nothing to navigate
         if (current.children.isEmpty()) return false
 
         val selectedNode = current.children.getOrNull(selectedIndex)
 
-        // Navigation keys (when not typing into input)
         when (key) {
-            GLFW_KEY_UP -> {
-                moveSelectionUp()
-                return true
-            }
-            GLFW_KEY_DOWN -> {
-                moveSelectionDown()
-                return true
-            }
-            GLFW_KEY_LEFT, GLFW_KEY_ESCAPE -> {
-                goBack()
-                return true
-            }
+            GLFW_KEY_UP -> moveSelection(-1)
+            GLFW_KEY_DOWN -> moveSelection(1)
+            GLFW_KEY_LEFT, GLFW_KEY_ESCAPE -> goBack()
             GLFW_KEY_RIGHT, GLFW_KEY_ENTER -> {
                 if (selectedNode != null) {
-                    if (selectedNode.isInput) {
-                        confirmInput(selectedNode)
-                        return true
-                    }
+                    if (selectedNode.isInput) return true // Input handled by char callback
                     if (selectedNode.children.isNotEmpty()) {
                         enterSubmenu(selectedNode)
-                        return true
+                    } else {
+                        handleLeafAction(selectedNode)
                     }
-                    selectedNode.action?.invoke()
-                    handleLeafAction(selectedNode)
-                    return true
                 }
             }
             GLFW_KEY_BACKSPACE -> {
-                if (selectedNode != null && selectedNode.isInput) {
-                    if (selectedNode.inputBuffer.isNotEmpty()) {
-                        selectedNode.inputBuffer.deleteCharAt(selectedNode.inputBuffer.length - 1)
-                    }
-                    return true
+                if (selectedNode != null && selectedNode.isInput && selectedNode.inputBuffer.isNotEmpty()) {
+                    selectedNode.inputBuffer.deleteCharAt(selectedNode.inputBuffer.length - 1)
                 }
             }
+            else -> return false // Not a key we handle
         }
-
-        return false
+        return true
     }
 
-    /**
-     * Handle character input (text nodes).
-     */
     fun handleCharInput(ch: Char) {
         val node = current.children.getOrNull(selectedIndex) ?: return
-        if (!node.isInput) return
-        // Append printable characters (simple check)
-        if (!ch.isISOControl()) {
+        if (node.isInput && !ch.isISOControl()) {
             node.inputBuffer.append(ch)
         }
     }
 
-    private fun moveSelectionUp() {
+    private fun moveSelection(delta: Int) {
         if (current.children.isEmpty()) return
-        var newIndex = selectedIndex - 1
-        if (newIndex < 0) newIndex = current.children.size - 1
-        // skip non-selectable nodes using explicit comparison to avoid unary '!' operator issues
-        while (current.children[newIndex].selectable == false) {
-            newIndex--
-            if (newIndex < 0) newIndex = current.children.size - 1
-        }
-        selectedIndex = newIndex
-    }
+        val numItems = current.children.size
+        var newIndex = selectedIndex + delta
+        // Wrap around
+        if (newIndex < 0) newIndex = numItems - 1
+        if (newIndex >= numItems) newIndex = 0
 
-    private fun moveSelectionDown() {
-        if (current.children.isEmpty()) return
-        var newIndex = (selectedIndex + 1) % current.children.size
-        while (current.children[newIndex].selectable == false) {
-            newIndex = (newIndex + 1) % current.children.size
+        // Skip non-selectable items
+        var attempts = 0
+        while (!current.children[newIndex].selectable && attempts < numItems) {
+            newIndex = (newIndex + delta).let { if (it < 0) numItems - 1 else it % numItems }
+            attempts++
         }
         selectedIndex = newIndex
     }
@@ -130,85 +95,41 @@ class MenuNavigator {
     }
 
     private fun goBack() {
-        if (stack.isEmpty()) return
-        current = stack.removeLast()
-        selectedIndex = 0
-    }
-
-    private fun confirmInput(node: MenuNode) {
-        when (node.id) {
-            "world_name" -> {
-                println("World name set: ${node.inputBuffer}")
-            }
-            "world_seed" -> {
-                println("World seed set: ${node.inputBuffer}")
-            }
-            "add_server_ip" -> {
-                println("Server IP: ${node.inputBuffer}")
-            }
-            "add_server_port" -> {
-                println("Server Port: ${node.inputBuffer}")
-            }
+        if (stack.isNotEmpty()) {
+            current = stack.removeLast()
+            selectedIndex = 0
         }
     }
 
     private fun handleLeafAction(node: MenuNode) {
         when (node.id) {
             "start_singleplayer" -> {
-                val worldCreateNode = findNodeInStackOrCurrent("world_create")
+                val worldCreateNode = findNodeInTree(root, "world_create")
                 val nameNode = worldCreateNode?.children?.find { it.id == "world_name" }
                 val seedNode = worldCreateNode?.children?.find { it.id == "world_seed" }
-                val worldName = nameNode?.inputBuffer?.toString() ?: "New World"
+                val worldName = nameNode?.inputBuffer?.toString()?.ifEmpty { "New World" } ?: "New World"
                 val seedText = seedNode?.inputBuffer?.toString()
-                val seed = seedText?.toLongOrNull() ?: (System.currentTimeMillis() and 0xffffffffL)
-                listener?.onCreateSingleplayer(worldName, seed)
+                val seed = seedText?.toLongOrNull() ?: System.currentTimeMillis()
                 listener?.onStartSingleplayer(worldName, seed)
             }
-            "quit" -> {
-                listener?.onQuit() ?: println("Quit requested (no listener set)")
-            }
             "add_server_confirm" -> {
-                val addServerNode = findNodeInStackOrCurrent("add_server")
+                val addServerNode = findNodeInTree(root, "add_server")
                 val ipNode = addServerNode?.children?.find { it.id == "add_server_ip" }
                 val portNode = addServerNode?.children?.find { it.id == "add_server_port" }
-                val ip = ipNode?.inputBuffer?.toString() ?: "127.0.0.1"
+                val ip = ipNode?.inputBuffer?.toString()?.ifEmpty { "127.0.0.1" } ?: "127.0.0.1"
                 val port = portNode?.inputBuffer?.toString()?.toIntOrNull() ?: 25565
                 listener?.onJoinServer(ip, port)
             }
-            else -> {
-                // default: nothing
-            }
+            "quit" -> listener?.onQuit()
         }
     }
 
-    private fun findNodeInStackOrCurrent(id: String): MenuNode? {
-        if (current.id == id) return current
-        for (node in stack.reversed()) {
-            if (node.id == id) return node
-            val found = findInSubtree(node, id)
+    private fun findNodeInTree(startNode: MenuNode, id: String): MenuNode? {
+        if (startNode.id == id) return startNode
+        for (child in startNode.children) {
+            val found = findNodeInTree(child, id)
             if (found != null) return found
         }
-        return findInSubtree(current, id)
-    }
-
-    private fun findInSubtree(node: MenuNode, id: String): MenuNode? {
-        if (node.id == id) return node
-        for (c in node.children) {
-            val r = findInSubtree(c, id)
-            if (r != null) return r
-        }
         return null
-    }
-
-    /** Listener interface that VexGame should implement to act on selections */
-    interface MenuListener {
-        /** Called when user finalizes creation parameters for a singleplayer world. */
-        fun onCreateSingleplayer(name: String, seed: Long) {}
-        /** Called to start the singleplayer session (switch to playing state). */
-        fun onStartSingleplayer(name: String, seed: Long) {}
-        /** Called when user confirms joining a server. */
-        fun onJoinServer(ip: String, port: Int) {}
-        /** Called when the user chooses Quit. */
-        fun onQuit() {}
     }
 }

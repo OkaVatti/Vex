@@ -1,144 +1,219 @@
 package dev.vex.client.render
 
-import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11.*
-import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
-import org.lwjgl.stb.STBImage.*
+import org.lwjgl.stb.STBTTAlignedQuad
 import org.lwjgl.system.MemoryStack
 import java.nio.ByteBuffer
-import java.nio.IntBuffer
 
-/**
- * Simple FontRenderer which tries to load an ASCII font atlas image (expected layout: 16x16 grid,
- * 256 glyphs). If loading fails it falls back to drawing plain quads for each character so UI text
- * remains visible.
- *
- * drawText(x,y,text,scale) draws text using immediate-mode textured quads (or fallback quads).
- */
-class FontRenderer(private val filepath: String) {
-    private var textureId = 0
-    var isLoaded = false
-        private set
+// ==================================================================================
+// PLACEHOLDER / ASSUMED CLASSES
+// You must define these types in your project or update the code to use your actual types
+// ----------------------------------------------------------------------------------
 
-    // assumed glyph grid
-    private val glyphsPerRow = 16
-    private val glyphWidthPx = 8
-    private val glyphHeightPx = 8
+/** Represents a texture handle. Replace with your actual Texture class. */
+data class Texture(val id: Int)
+
+/** Handles loading textures. Replace with your actual TextureLoader logic. */
+object TextureLoader {
+    // Note: This path should match where you store your ASCII texture.
+    fun loadTexture(path: String): Texture {
+        // In a real application, this would call your STB Image loading and return a valid GL texture ID.
+        // For now, we return 0, which will cause the fallback to print a box (if implemented).
+        println("TextureLoader: Placeholder loaded for '$path'")
+        return Texture(0)
+    }
+}
+
+/** Represents a color vector. Replace with your actual Vec4 struct/class. */
+data class Vec4(val r: Float, val g: Float, val b: Float, val a: Float)
+// ==================================================================================
+
+
+class FontRenderer {
+    // --- Primary Bitmap Font (ASCII.PNG) Fields ---
+    private var asciiTexture: Texture
+    private val asciiCharWidth: Float = 8f
+    private var isAsciiLoaded: Boolean
+
+    // --- TrueType Fallback Fields ---
+    private val truetypeFont: TrueTypeFont
+    private val isTruetypeLoaded: Boolean
+
+    // A reusable struct for getting rendering data from stb_truetype
+    private val charQuad: STBTTAlignedQuad
 
     init {
+        // 1. Load Primary ASCII Bitmap
+        val asciiPath = "assets/textures/ascii.png"
         try {
-            loadTexture(filepath)
-            isLoaded = true
-            println("FontRenderer: loaded '$filepath' as GL texture #$textureId")
+            // Note: If TextureLoader.loadTexture fails, asciiTexture.id might be 0.
+            asciiTexture = TextureLoader.loadTexture(asciiPath)
+            isAsciiLoaded = asciiTexture.id != 0
+            if (isAsciiLoaded) println("FontRenderer: Primary font loaded successfully.")
         } catch (e: Exception) {
-            isLoaded = false
-            println("FontRenderer: failed to load '$filepath' - using placeholder. Reason: ${e.message}")
+            println("FontRenderer: Failed to load primary font '$asciiPath'. Reason: ${e.message}")
+            asciiTexture = Texture(0)
+            isAsciiLoaded = false
         }
-    }
 
-    private fun loadTexture(path: String) {
-        MemoryStack.stackPush().use { stack ->
-            val x = stack.mallocInt(1)
-            val y = stack.mallocInt(1)
-            val comp = stack.mallocInt(1)
+        // 2. Load TrueType Fallback Font
+        val ttfPath = "assets/fonts/MinecraftRegular.otf"
+        val firstCodepoint = 32 // Space
+        val lastCodepoint = 255 // Extended ASCII/Latin-1 Supplement
+        val charCount = lastCodepoint - firstCodepoint + 1
 
-            // stbi_load expects a forward slash or platform path; allow either
-            val image: ByteBuffer? = stbi_load(path.replace('/', java.io.File.separatorChar), x, y, comp, 4)
-                ?: stbi_load(path, x, y, comp, 4)
-
-            if (image == null) {
-                throw RuntimeException("Failed to read texture file '$path': ${stbi_failure_reason()}")
+        val tempFont: TrueTypeFont = try {
+            TrueTypeFont(ttfPath, 16f, firstCodepoint, charCount)
+        } catch (e: Exception) {
+            println("FontRenderer: Failed to load TrueType fallback '$ttfPath'. Reason: ${e.message}")
+            // Create a minimal fallback that won't crash
+            object : TrueTypeFont(ttfPath, 16f, firstCodepoint, charCount) {
+                override fun getCharQuad(c: Char, x: Float, y: Float, quad: STBTTAlignedQuad): Boolean = false
+                override fun getTextureID(): Int = 0
+                override fun cleanup() {}
             }
-
-            val width = x.get(0)
-            val height = y.get(0)
-
-            textureId = glGenTextures()
-            glBindTexture(GL_TEXTURE_2D, textureId)
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-            // Upload (the image buffer is RGBA)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image)
-            glBindTexture(GL_TEXTURE_2D, 0)
-
-            stbi_image_free(image)
         }
+
+        truetypeFont = tempFont
+        isTruetypeLoaded = truetypeFont.getTextureID() != 0
+        if (isTruetypeLoaded) println("FontRenderer: TrueType fallback loaded successfully.")
+
+        // 3. Allocate reusable memory for rendering
+        charQuad = STBTTAlignedQuad.malloc()
     }
 
     /**
-     * Draw a string at pixel-space coordinates (top-left origin) using immediate-mode GL.
-     * scale is a multiplier for glyph pixel size.
+     * Renders a string using the primary bitmap font with TrueType fallback.
+     * @param text The string to render.
+     * @param x The starting x position.
+     * @param y The starting y position (usually the baseline).
+     * @param color The color to render the text.
      */
-    fun drawText(x: Float, y: Float, text: String, scale: Float = 1.0f) {
-        if (isLoaded && textureId != 0) {
-            glEnable(GL_TEXTURE_2D)
-            glBindTexture(GL_TEXTURE_2D, textureId)
-        } else {
-            // no texture; make sure texturing is disabled for fallback rectangles
-            glDisable(GL_TEXTURE_2D)
-        }
+    fun drawString(text: String, x: Float, y: Float, color: Vec4) {
+        // --- OpenGL Setup (Needs to happen once per draw batch) ---
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        glPushMatrix()
-        // immediate-mode uses current color; caller usually sets it
-        var penX = x
-        val penY = y
+        // You would typically bind your shader here
+        // shader.bind()
+        // shader.setUniform("u_color", color)
 
-        // If using atlas, compute UV per glyph based on 16x16 grid
-        val atlasCellW = 1.0f / glyphsPerRow.toFloat()
-        val atlasCellH = 1.0f / glyphsPerRow.toFloat()
+        var currentX = x
+        val initialY = y
 
-        for (ch in text) {
-            val code = ch.code and 0xFF
-            val gx = (code % glyphsPerRow)
-            val gy = (code / glyphsPerRow)
+        // Start batching here if you are using a modern VBO/IBO approach
 
-            val px = penX
-            val py = penY
-            val w = glyphWidthPx * scale
-            val h = glyphHeightPx * scale
+        for (char in text) {
+            val charCode = char.code
 
-            if (isLoaded && textureId != 0) {
-                val u0 = gx * atlasCellW
-                val v0 = gy * atlasCellH
-                val u1 = u0 + atlasCellW
-                val v1 = v0 + atlasCellH
+            // --- Primary Bitmap Logic (Handles standard ASCII range) ---
+            if (isAsciiLoaded && charCode >= 32 && charCode <= 127) {
 
-                glBegin(GL_QUADS)
-                glTexCoord2f(u0, v0); glVertex2f(px, py)
-                glTexCoord2f(u0, v1); glVertex2f(px, py + h)
-                glTexCoord2f(u1, v1); glVertex2f(px + w, py + h)
-                glTexCoord2f(u1, v0); glVertex2f(px + w, py)
-                glEnd()
+                // Bind the ASCII texture
+                glBindTexture(GL_TEXTURE_2D, asciiTexture.id)
+
+                // Calculate UVs based on the 16x16 grid (assuming 256x256 texture and 16x16 chars)
+                val u = (charCode % 16) * asciiCharWidth / 256f
+                val v = (charCode / 16) * asciiCharWidth / 256f
+                val u1 = u + asciiCharWidth / 256f
+                val v1 = v + asciiCharWidth / 256f
+
+                // Render the ASCII character quad
+                renderQuad(
+                    currentX, initialY, currentX + asciiCharWidth, initialY + asciiCharWidth,
+                    u, v, u1, v1,
+                    color,
+                    asciiTexture.id
+                )
+
+                currentX += asciiCharWidth // Fixed width advance
+
+                // --- TrueType Fallback Logic ---
+            } else if (isTruetypeLoaded) {
+                // Character is outside the primary range or primary load failed, use TTF.
+
+                // Bind the TrueType texture
+                glBindTexture(GL_TEXTURE_2D, truetypeFont.getTextureID())
+
+                // Get the quad data from the TrueType font atlas
+                if (truetypeFont.getCharQuad(char, currentX, initialY, charQuad)) {
+
+                    // Render the TrueType quad (Note: TTF quad coords are usually already correct for screen space)
+                    renderQuad(
+                        charQuad.x0(), charQuad.y0(), charQuad.x1(), charQuad.y1(),
+                        charQuad.s0(), charQuad.t0(), charQuad.s1(), charQuad.t1(),
+                        color,
+                        truetypeFont.getTextureID()
+                    )
+
+                    // Advance the cursor to the position returned by STBTT (x1 position from the quad)
+                    currentX = charQuad.x1()
+
+                } else {
+                    // TTF could not find the character either, advance cursor anyway
+                    currentX += 8f
+                }
             } else {
-                // fallback: draw a visible rectangle per glyph (so menu text is visible)
+                // --- Complete Fallback (Draw a solid box or skip) ---
+                glDisable(GL_TEXTURE_2D)
+                glColor4f(color.r, color.g, color.b, color.a)
                 glBegin(GL_QUADS)
-                glVertex2f(px, py)
-                glVertex2f(px, py + h)
-                glVertex2f(px + w, py + h)
-                glVertex2f(px + w, py)
+                glVertex2f(currentX, initialY)
+                glVertex2f(currentX, initialY + asciiCharWidth)
+                glVertex2f(currentX + asciiCharWidth, initialY + asciiCharWidth)
+                glVertex2f(currentX + asciiCharWidth, initialY)
                 glEnd()
+                currentX += asciiCharWidth
             }
-
-            penX += (glyphWidthPx + 1) * scale
         }
 
-        glPopMatrix()
+        // Finalize batching and draw here if using a modern renderer
 
-        if (isLoaded && textureId != 0) {
-            glBindTexture(GL_TEXTURE_2D, 0)
-            glDisable(GL_TEXTURE_2D)
-        }
+        // --- OpenGL Cleanup ---
+        // shader.unbind()
+        glDisable(GL_BLEND)
+        glDisable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, 0)
     }
 
+    /**
+     * Placeholder for actual rendering logic. This should be replaced with your
+     * vertex buffer (VBO/IBO) or immediate mode rendering implementation.
+     */
+    private fun renderQuad(x0: Float, y0: Float, x1: Float, y1: Float, s0: Float, t0: Float, s1: Float, t1: Float, color: Vec4, textureId: Int) {
+        // Simple Immediate Mode (for demonstration only; bad performance)
+        glBindTexture(GL_TEXTURE_2D, textureId)
+        glColor4f(color.r, color.g, color.g, color.a)
+
+        glBegin(GL_QUADS)
+        // Top-Left
+        glTexCoord2f(s0, t0); glVertex2f(x0, y0)
+        // Bottom-Left
+        glTexCoord2f(s0, t1); glVertex2f(x0, y1)
+        // Bottom-Right
+        glTexCoord2f(s1, t1); glVertex2f(x1, y1)
+        // Top-Right
+        glTexCoord2f(s1, t0); glVertex2f(x1, y0)
+        glEnd()
+    }
+
+    /**
+     * Releases all managed native resources (texture memory, STB structs).
+     */
     fun cleanup() {
-        if (textureId != 0) {
-            glDeleteTextures(textureId)
-            textureId = 0
+        // Clean up TrueType resources (which handles its own texture)
+        truetypeFont.cleanup()
+
+        // Clean up reusable STB struct
+        charQuad.free()
+
+        // Clean up the ASCII texture
+        if (asciiTexture.id != 0) {
+            glDeleteTextures(asciiTexture.id)
+            // Note: If TextureLoader is managed elsewhere, you might skip this line.
         }
+
+        println("FontRenderer resources cleaned up.")
     }
 }

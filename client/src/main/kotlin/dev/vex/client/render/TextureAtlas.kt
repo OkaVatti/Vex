@@ -1,149 +1,161 @@
 package dev.vex.client.render
 
+import dev.vex.client.util.ResourceLoader
 import org.lwjgl.opengl.GL11.*
 import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
-import org.lwjgl.opengl.GL13.*
-import org.lwjgl.opengl.GL30.glGenerateMipmap
+import org.lwjgl.stb.STBImage.*
 import org.lwjgl.system.MemoryStack
-import org.lwjgl.system.MemoryUtil
-import org.lwjgl.stb.STBImage
 import java.nio.ByteBuffer
-import java.nio.IntBuffer
-import java.nio.file.Files
-import java.nio.file.Paths
 
 /**
- * Simple texture atlas loader using STBImage + OpenGL.
- *
- * Usage supported by the rest of the code:
- *  - TextureAtlas("path/to/atlas.png").load()
- *  - TextureAtlas.createPlaceholder()
- *  - atlas.bind()
- *  - atlas.cleanup()
+ * Handles loading and managing a texture atlas (a single image containing multiple smaller textures).
  */
-class TextureAtlas(
-    private val filepath: String? = null,
-    val gridCols: Int = 16,
-    val gridRows: Int = 16
-) {
-    var textureId: Int = 0
-        private set
-    var width: Int = 0
-        private set
-    var height: Int = 0
-        private set
-    var channels: Int = 0
+
+class TextureAtlas(filepath: String) {
+    private var textureId: Int = 0
+    private var textureWidth: Int = 0
+    private var textureHeight: Int = 0
+    private val cellSizePx = 16
+    private var cellsPerRow: Int = 0
+    private var cellsPerCol: Int = 0
+
+    // The filepath should now be the clean, correct classpath path (e.g., "assets/textures/hudui.png")
+    private val correctedFilepath: String = if (filepath.startsWith("/")) filepath.substring(1) else filepath
+
+    var isLoaded = false
         private set
 
     /**
-     * Load the texture from the filepath provided in the constructor.
-     * Must be called after an OpenGL context is created.
+     * Loads the texture atlas from the specified filepath (as a classpath resource).
+     * @throws RuntimeException if the texture cannot be loaded.
      */
     fun load() {
-        val path = filepath ?: throw IllegalArgumentException("No filepath provided to TextureAtlas.load()")
-        val bytes = try {
-            Files.readAllBytes(Paths.get(path))
-        } catch (ex: Exception) {
-            throw RuntimeException("Failed to read texture file '$path': ${ex.message}", ex)
-        }
-
-        val buffer = MemoryUtil.memAlloc(bytes.size)
-        buffer.put(bytes)
-        buffer.flip()
-
-        STBImage.stbi_set_flip_vertically_on_load(true)
         MemoryStack.stackPush().use { stack ->
-            val w: IntBuffer = stack.mallocInt(1)
-            val h: IntBuffer = stack.mallocInt(1)
-            val ch: IntBuffer = stack.mallocInt(1)
+            // ... (STB image loading setup) ...
+            val x = stack.mallocInt(1)
+            val y = stack.mallocInt(1)
+            val comp = stack.mallocInt(1)
 
-            val image: ByteBuffer? = STBImage.stbi_load_from_memory(buffer, w, h, ch, 0)
-            MemoryUtil.memFree(buffer)
-
-            if (image == null) {
-                val reason = STBImage.stbi_failure_reason()
-                throw RuntimeException("Failed to load image '$path' with STB: $reason")
+            val imageBuffer: ByteBuffer = try {
+                ResourceLoader.readResourceToByteBuffer(correctedFilepath)
+            } catch (e: Exception) {
+                throw RuntimeException("Resource load failed for '$correctedFilepath'.", e)
             }
 
-            width = w.get(0)
-            height = h.get(0)
-            channels = ch.get(0)
+            val image: ByteBuffer? = stbi_load_from_memory(imageBuffer, x, y, comp, 4)
 
-            // Create GL texture
+            if (image == null) {
+                throw RuntimeException("Failed to decode texture file '$correctedFilepath': ${stbi_failure_reason()}")
+            }
+            // ... (OpenGL texture creation and cleanup) ...
+            textureWidth = x.get(0)
+            textureHeight = y.get(0)
+
+            cellsPerRow = textureWidth / cellSizePx
+            cellsPerCol = textureHeight / cellSizePx
+
             textureId = glGenTextures()
             glBindTexture(GL_TEXTURE_2D, textureId)
 
-            // Filtering and wrap
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
 
-            // Upload pixel data
-            val format = when (channels) {
-                3 -> GL_RGB
-                4 -> GL_RGBA
-                else -> GL_RGBA
-            }
-
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, image)
-            glGenerateMipmap(GL_TEXTURE_2D)
-
-            STBImage.stbi_image_free(image)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, image)
             glBindTexture(GL_TEXTURE_2D, 0)
+
+            stbi_image_free(image)
+            isLoaded = true
         }
     }
 
-    /** Bind to texture unit 0 by default */
-    fun bind() = bind(0)
+    // ... rest of the TextureAtlas class (bind, unbind, getUV, cleanup, companion object) remains the same
 
-    /** Bind to a specified texture unit */
-    fun bind(unit: Int) {
-        // Query supported units and clamp requested unit to valid range
-        val maxUnits = glGetInteger(GL_MAX_TEXTURE_UNITS)
-        val unitToUse = when {
-            unit < 0 -> 0
-            unit >= maxUnits -> 0
-            else -> unit
+    /**
+     * Binds this texture atlas to GL_TEXTURE_2D for drawing.
+     */
+    fun bind() {
+        if (isLoaded) {
+            glBindTexture(GL_TEXTURE_2D, textureId)
         }
-        glActiveTexture(GL_TEXTURE0 + unitToUse)
-        glBindTexture(GL_TEXTURE_2D, textureId)
     }
 
-    /** Delete GL texture */
+    /**
+     * Unbinds the current texture.
+     */
+    fun unbind() {
+        glBindTexture(GL_TEXTURE_2D, 0)
+    }
+
+    /**
+     * Returns the UV coordinates for a texture at a given grid index.
+     * @param index The 0-based index of the texture in the atlas (reading left-to-right, top-to-bottom).
+     * @return A FloatArray of [u0, v0, u1, v1].
+     */
+    fun getUV(index: Int): FloatArray {
+        if (!isLoaded || cellsPerRow == 0 || cellsPerCol == 0) {
+            // Return placeholder UVs (e.g., solid color) if atlas not loaded or invalid
+            return floatArrayOf(0f, 0f, 1f, 1f)
+        }
+
+        val col = index % cellsPerRow
+        val row = index / cellsPerRow
+
+        val uSize = 1.0f / cellsPerRow.toFloat()
+        val vSize = 1.0f / cellsPerCol.toFloat()
+
+        val u0 = col * uSize
+        val v0 = row * vSize
+        val u1 = u0 + uSize
+        val v1 = v0 + vSize
+
+        return floatArrayOf(u0, v0, u1, v1)
+    }
+
+    /**
+     * Cleans up the OpenGL texture resource.
+     */
     fun cleanup() {
         if (textureId != 0) {
             glDeleteTextures(textureId)
             textureId = 0
+            isLoaded = false
         }
     }
 
     companion object {
         /**
-         * Create a minimal placeholder atlas (1x1 pixel). Useful when loading fails.
+         * Creates a placeholder texture atlas if loading fails.
          */
         fun createPlaceholder(): TextureAtlas {
-            val atlas = TextureAtlas(null)
-            atlas.textureId = glGenTextures()
-            glBindTexture(GL_TEXTURE_2D, atlas.textureId)
+            val placeholder = TextureAtlas("") // Path doesn't matter for placeholder
+            placeholder.isLoaded = true
+            placeholder.textureId = glGenTextures()
+            glBindTexture(GL_TEXTURE_2D, placeholder.textureId)
 
-            // 1x1 black pixel RGBA
-            val px = MemoryUtil.memAlloc(4)
-            px.put(0.toByte()).put(0.toByte()).put(0.toByte()).put(255.toByte())
-            px.flip()
+            val placeholderSize = 16 // 16x16 red square
+            val buffer = ByteBuffer.allocateDirect(placeholderSize * placeholderSize * 4)
+            for (i in 0 until placeholderSize * placeholderSize) {
+                buffer.put(0xFF.toByte()) // R
+                buffer.put(0x00.toByte()) // G
+                buffer.put(0x00.toByte()) // B
+                buffer.put(0xFF.toByte()) // A
+            }
+            buffer.flip()
 
-            atlas.width = 1
-            atlas.height = 1
-            atlas.channels = 4
-
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-            glBindTexture(GL_TEXTURE_2D, 0)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, placeholderSize, placeholderSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer)
 
-            MemoryUtil.memFree(px)
-            return atlas
+            glBindTexture(GL_TEXTURE_2D, 0)
+            placeholder.textureWidth = placeholderSize
+            placeholder.textureHeight = placeholderSize
+            placeholder.cellsPerRow = 1
+            placeholder.cellsPerCol = 1
+            return placeholder
         }
     }
 }

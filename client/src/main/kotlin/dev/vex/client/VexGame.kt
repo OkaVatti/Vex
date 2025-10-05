@@ -10,15 +10,11 @@ import org.lwjgl.opengl.GL11.*
 import org.joml.Matrix4f
 import kotlin.system.exitProcess
 
-/**
- * Main game class - Beta 1.7.3 style Minecraft clone
- */
-class VexGame {
+class VexGame : MenuNavigator.MenuListener {
     private var window: Long = 0
     private var width = 1280
     private var height = 720
 
-    // Core systems
     private lateinit var camera: Camera
     private lateinit var world: World
     private lateinit var blockAtlas: TextureAtlas
@@ -28,14 +24,12 @@ class VexGame {
     private lateinit var menuNavigator: MenuNavigator
     private lateinit var font: FontRenderer
 
-    // Timing
     private var lastFrameTime = 0.0
     private var deltaTime = 0.0f
     private var fps = 0
     private var fpsCounter = 0
     private var fpsTimer = 0.0
 
-    // Input state
     private val keys = BooleanArray(GLFW_KEY_LAST)
     private var firstMouse = true
     private var lastX = width / 2.0
@@ -48,23 +42,14 @@ class VexGame {
     }
 
     private fun init() {
-        // Initialize GLFW
         GLFWErrorCallback.createPrint(System.err).set()
-
         if (!glfwInit()) {
             throw IllegalStateException("Unable to initialize GLFW")
         }
 
-        // OpenGL: request a compatibility/fixed-function context so legacy
-        // immediate-mode UI calls (glMatrixMode, glOrtho, glColor3f, etc.)
-        // are available and will actually work.
         glfwDefaultWindowHints()
-        // Request OpenGL 2.1 for guaranteed compatibility with the fixed-function pipeline.
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2)
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1)
-        // Don't set profile hint (or use compatibility if you prefer), let GLFW give a compat context.
-        // glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE) // removed
-
 
         window = glfwCreateWindow(width, height, "Vex - Beta 1.7.3 Recreation", 0, 0)
         if (window == 0L) {
@@ -72,41 +57,35 @@ class VexGame {
         }
 
         glfwMakeContextCurrent(window)
-        glfwSwapInterval(1) // V-Sync
+        glfwSwapInterval(1)
         glfwShowWindow(window)
 
         GL.createCapabilities()
 
-        // OpenGL state
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_CULL_FACE)
         glCullFace(GL_BACK)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        // Initialize game systems
         camera = Camera()
         world = World()
         stateManager = GameStateManager()
         menuNavigator = MenuNavigator()
+        menuNavigator.listener = this
 
-        // FIX: Initialize FontRenderer first, then pass it to UIRenderer
         font = FontRenderer("assets/textures/ascii.png")
         uiRenderer = UIRenderer(width, height, menuNavigator, font)
 
-        // Load texture atlas
-        // FIX: Provide filepath parameter
         blockAtlas = TextureAtlas("assets/textures/blocks.png")
         try {
             blockAtlas.load()
             println("Block atlas loaded successfully")
         } catch (e: Exception) {
             println("Warning: Could not load block atlas - ${e.message}")
-            println("Creating placeholder textures...")
             createPlaceholderAtlas()
         }
 
-        // Create shader
         shader = ShaderProgram()
         shader.create(ShaderProgram.VERTEX_SHADER, ShaderProgram.FRAGMENT_SHADER)
         shader.createUniform("projectionMatrix")
@@ -118,14 +97,6 @@ class VexGame {
         shader.createUniform("ambientStrength")
         shader.createUniform("fogDensity")
         shader.createUniform("fogGradient")
-
-        // Generate initial chunks
-        println("Generating world...")
-        for (x in -4..4) {
-            for (z in -4..4) {
-                world.loadChunk(x, z)
-            }
-        }
 
         println("Vex initialized successfully!")
         println("Controls:")
@@ -181,17 +152,6 @@ class VexGame {
                 lastY = ypos
 
                 camera.processMouseMovement(xoffset, yoffset)
-            } else {
-                uiRenderer.onMouseMove(xpos.toFloat(), ypos.toFloat())
-            }
-        }
-
-        glfwSetMouseButtonCallback(window) { _, button, action, _ ->
-            if (action == GLFW_PRESS && (stateManager.isTitleScreen() || stateManager.isPaused())) {
-                val px = DoubleArray(1)
-                val py = DoubleArray(1)
-                glfwGetCursorPos(window, px, py)
-                uiRenderer.onMouseClick(px[0].toFloat(), py[0].toFloat())
             }
         }
 
@@ -213,13 +173,30 @@ class VexGame {
             deltaTime = (currentTime - lastFrameTime).toFloat()
             lastFrameTime = currentTime
 
-            // Update FPS
             fpsCounter++
             fpsTimer += deltaTime
             if (fpsTimer >= 1.0) {
                 fps = fpsCounter
                 fpsCounter = 0
                 fpsTimer = 0.0
+            }
+
+            if (stateManager.isPlaying()) {
+                if (glfwGetInputMode(window, GLFW_CURSOR) != GLFW_CURSOR_DISABLED) {
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED)
+                    // FIX: Use IntArray for glfwGetWindowSize and cast results to Double
+                    val w = IntArray(1)
+                    val h = IntArray(1)
+                    glfwGetWindowSize(window, w, h)
+                    lastX = w[0] / 2.0
+                    lastY = h[0] / 2.0
+                    glfwSetCursorPos(window, lastX, lastY)
+                    firstMouse = true
+                }
+            } else {
+                if (glfwGetInputMode(window, GLFW_CURSOR) != GLFW_CURSOR_NORMAL) {
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL)
+                }
             }
 
             when {
@@ -277,25 +254,17 @@ class VexGame {
         shader.setUniform("fogDensity", 0.007f)
         shader.setUniform("fogGradient", 1.5f)
 
-        // World (3D) draw
         blockAtlas.bind()
         world.render(camera)
         shader.unbind()
 
-        // --- UI pass: draw 2D UI on top of everything ---
-        // Disable depth test so UI quads always appear on top of the 3D scene
         glDisable(GL_DEPTH_TEST)
-        // Ensure blending is enabled for transparency in UI textures
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        // Don't write to the depth buffer while drawing UI
         glDepthMask(false)
 
         if (stateManager.isPlaying()) {
             uiRenderer.renderHUD(fps, camera.position)
         }
 
-        // restore depth writing and depth testing for next frame or other 3D work
         glDepthMask(true)
         glEnable(GL_DEPTH_TEST)
     }
@@ -303,36 +272,23 @@ class VexGame {
     private fun renderTitleScreen() {
         glClearColor(0.15f, 0.15f, 0.15f, 1.0f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-
-        // UI should be drawn without depth testing so it is visible on top of the clear
         glDisable(GL_DEPTH_TEST)
         glDepthMask(false)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
         uiRenderer.renderTitleScreen(
             menuNavigator.getMenuItems(),
             menuNavigator.selectedIndex
         )
-
-        // restore depth state for subsequent frames
         glDepthMask(true)
         glEnable(GL_DEPTH_TEST)
     }
 
     private fun renderPauseMenu() {
-        // We keep showing the game behind the pause menu, then draw UI on top
-        // So do not clear color/depth here (renderGame already did), just overlay the pause UI.
         glDisable(GL_DEPTH_TEST)
         glDepthMask(false)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
         uiRenderer.renderPauseMenu(
             menuNavigator.getMenuItems(),
             menuNavigator.selectedIndex
         )
-
         glDepthMask(true)
         glEnable(GL_DEPTH_TEST)
     }
@@ -351,6 +307,25 @@ class VexGame {
         glfwDestroyWindow(window)
         glfwTerminate()
         glfwSetErrorCallback(null)?.free()
+    }
+
+    override fun onStartSingleplayer(name: String, seed: Long) {
+        println("Starting new world '$name' with seed $seed...")
+        world = World() // Assuming world can take a seed now
+        for (x in -4..4) {
+            for (z in -4..4) {
+                world.loadChunk(x, z)
+            }
+        }
+        stateManager.startGame(name)
+    }
+
+    override fun onJoinServer(ip: String, port: Int) {
+        println("Joining server at $ip:$port (Not Implemented)")
+    }
+
+    override fun onQuit() {
+        glfwSetWindowShouldClose(window, true)
     }
 }
 
