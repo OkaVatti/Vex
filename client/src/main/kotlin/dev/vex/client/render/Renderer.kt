@@ -2,17 +2,19 @@ package dev.vex.client.render
 
 import dev.vex.client.world.Chunk
 import org.joml.Matrix4f
-import org.joml.Vector3f
 
-// Note: This class appears to be unused in VexGame.kt, which uses camera.getViewMatrix() directly.
+/**
+ * Legacy renderer class - currently unused in favor of direct rendering in VexGame.
+ * Kept for potential future refactoring.
+ *
+ * Note: VexGame.kt uses camera.getViewMatrix() directly instead of this class.
+ */
 class Renderer {
     private val viewMatrix = Matrix4f()
 
     fun updateCamera(camera: Camera) {
-        // *** FIX: Corrected the view matrix calculation. ***
-        // The original implementation had incorrect rotation transforms that would cause
-        // the world to "orbit" the origin. The correct FPS view matrix applies the
-        // inverse of the camera's rotation, followed by the inverse of its translation.
+        // Corrected view matrix calculation for FPS camera
+        // Apply inverse rotation followed by inverse translation
         viewMatrix.identity()
         viewMatrix.rotateX(Math.toRadians(camera.pitch.toDouble()).toFloat())
         viewMatrix.rotateY(Math.toRadians(camera.yaw.toDouble()).toFloat())
@@ -26,11 +28,13 @@ class Renderer {
     }
 
     private fun renderChunk(chunk: Chunk) {
-        // *** FIX: Replaced slow and unsafe reflection with direct property access. ***
-        // Assumes the Chunk class has public `x` and `z` properties.
+        // Access chunk coordinates directly
         val coords = "(${chunk.x}, ${chunk.z})"
 
-        // Example render stub — replace with the real GL draw calls.
-        println("Rendering chunk at $coords")
+        // Placeholder for actual OpenGL rendering
+        // Real implementation would use chunk meshes and shaders
+        // println("Rendering chunk at $coords")
     }
+
+    fun getViewMatrix(): Matrix4f = viewMatrix
 }

@@ -26,6 +26,7 @@ class VexGame {
     private lateinit var stateManager: GameStateManager
     private lateinit var uiRenderer: UIRenderer
     private lateinit var menuNavigator: MenuNavigator
+    private lateinit var font: FontRenderer
 
     // Timing
     private var lastFrameTime = 0.0
@@ -54,14 +55,16 @@ class VexGame {
             throw IllegalStateException("Unable to initialize GLFW")
         }
 
-        // OpenGL 3.3 Core Profile
-        // OpenGL 3.3 Compatibility Profile (allows legacy fixed-function calls used by UI)
+        // OpenGL: request a compatibility/fixed-function context so legacy
+        // immediate-mode UI calls (glMatrixMode, glOrtho, glColor3f, etc.)
+        // are available and will actually work.
         glfwDefaultWindowHints()
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3)
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3)
-        // Request compatibility profile so legacy glMatrixMode/glBegin/etc. are available on platforms that support it
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE)
-        // Avoid forcing forward-compatibility (which removes deprecated functions)
+        // Request OpenGL 2.1 for guaranteed compatibility with the fixed-function pipeline.
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2)
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1)
+        // Don't set profile hint (or use compatibility if you prefer), let GLFW give a compat context.
+        // glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE) // removed
+
 
         window = glfwCreateWindow(width, height, "Vex - Beta 1.7.3 Recreation", 0, 0)
         if (window == 0L) {
@@ -86,9 +89,13 @@ class VexGame {
         world = World()
         stateManager = GameStateManager()
         menuNavigator = MenuNavigator()
-        uiRenderer = UIRenderer(width, height, menuNavigator)
+
+        // FIX: Initialize FontRenderer first, then pass it to UIRenderer
+        font = FontRenderer("assets/textures/ascii.png")
+        uiRenderer = UIRenderer(width, height, menuNavigator, font)
 
         // Load texture atlas
+        // FIX: Provide filepath parameter
         blockAtlas = TextureAtlas("assets/textures/blocks.png")
         try {
             blockAtlas.load()
@@ -132,33 +139,26 @@ class VexGame {
     }
 
     private fun createPlaceholderAtlas() {
-        // Create simple colored texture atlas programmatically
         blockAtlas = TextureAtlas.createPlaceholder()
     }
 
     private fun setupCallbacks() {
-        // Key callback routes input to either menu navigation or game depending on state
         glfwSetKeyCallback(window) { _, key, _, action, _ ->
             if (key in 0 until GLFW_KEY_LAST) {
                 keys[key] = action != GLFW_RELEASE
             }
 
-            // If we're in title screen or paused, let the menu navigator handle keys
             if (stateManager.isTitleScreen() || stateManager.isPaused()) {
                 if (menuNavigator.handleKeyPress(key, action)) {
-                    // menu consumed the key
                     return@glfwSetKeyCallback
                 }
             } else {
-                // in-game: stateManager handles ESC to pause; otherwise game input is read in update loop
                 if (stateManager.handleInput(key, action)) {
-                    // state manager consumed the key (e.g. ESC)
                     return@glfwSetKeyCallback
                 }
             }
         }
 
-        // Character input (text) for menus
         glfwSetCharCallback(window) { _, codepoint ->
             if (stateManager.isTitleScreen() || stateManager.isPaused()) {
                 val ch = codepoint.toChar()
@@ -182,14 +182,12 @@ class VexGame {
 
                 camera.processMouseMovement(xoffset, yoffset)
             } else {
-                // Route mouse movement to UI for menu hover detection
                 uiRenderer.onMouseMove(xpos.toFloat(), ypos.toFloat())
             }
         }
 
         glfwSetMouseButtonCallback(window) { _, button, action, _ ->
             if (action == GLFW_PRESS && (stateManager.isTitleScreen() || stateManager.isPaused())) {
-                // Get cursor pos and forward to UI renderer
                 val px = DoubleArray(1)
                 val py = DoubleArray(1)
                 glfwGetCursorPos(window, px, py)
@@ -234,7 +232,7 @@ class VexGame {
                     renderTitleScreen()
                 }
                 stateManager.isPaused() -> {
-                    renderGame() // Render game in background
+                    renderGame()
                     renderPauseMenu()
                 }
             }
@@ -262,14 +260,12 @@ class VexGame {
     }
 
     private fun renderGame() {
-        // Clear screen
         val skyColor = getSkyColor()
         glClearColor(skyColor[0], skyColor[1], skyColor[2], 1.0f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
         shader.bind()
 
-        // Set uniforms
         val aspectRatio = if (height > 0) width.toFloat() / height.toFloat() else 1.0f
         shader.setUniform("projectionMatrix", camera.getProjectionMatrix(aspectRatio))
         shader.setUniform("viewMatrix", camera.getViewMatrix())
@@ -281,35 +277,64 @@ class VexGame {
         shader.setUniform("fogDensity", 0.007f)
         shader.setUniform("fogGradient", 1.5f)
 
-        // Bind texture atlas
+        // World (3D) draw
         blockAtlas.bind()
-
-        // Render world
         world.render(camera)
-
         shader.unbind()
 
-        // Render HUD (only if playing)
+        // --- UI pass: draw 2D UI on top of everything ---
+        // Disable depth test so UI quads always appear on top of the 3D scene
+        glDisable(GL_DEPTH_TEST)
+        // Ensure blending is enabled for transparency in UI textures
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        // Don't write to the depth buffer while drawing UI
+        glDepthMask(false)
+
         if (stateManager.isPlaying()) {
             uiRenderer.renderHUD(fps, camera.position)
         }
+
+        // restore depth writing and depth testing for next frame or other 3D work
+        glDepthMask(true)
+        glEnable(GL_DEPTH_TEST)
     }
 
     private fun renderTitleScreen() {
         glClearColor(0.15f, 0.15f, 0.15f, 1.0f)
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
+        // UI should be drawn without depth testing so it is visible on top of the clear
+        glDisable(GL_DEPTH_TEST)
+        glDepthMask(false)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
         uiRenderer.renderTitleScreen(
             menuNavigator.getMenuItems(),
             menuNavigator.selectedIndex
         )
+
+        // restore depth state for subsequent frames
+        glDepthMask(true)
+        glEnable(GL_DEPTH_TEST)
     }
 
     private fun renderPauseMenu() {
+        // We keep showing the game behind the pause menu, then draw UI on top
+        // So do not clear color/depth here (renderGame already did), just overlay the pause UI.
+        glDisable(GL_DEPTH_TEST)
+        glDepthMask(false)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
         uiRenderer.renderPauseMenu(
             menuNavigator.getMenuItems(),
             menuNavigator.selectedIndex
         )
+
+        glDepthMask(true)
+        glEnable(GL_DEPTH_TEST)
     }
 
     private fun getSkyColor(): FloatArray {
@@ -321,6 +346,7 @@ class VexGame {
         blockAtlas.cleanup()
         world.cleanup()
         uiRenderer.cleanup()
+        font.cleanup()
 
         glfwDestroyWindow(window)
         glfwTerminate()

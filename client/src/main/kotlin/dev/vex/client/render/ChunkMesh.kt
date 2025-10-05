@@ -23,7 +23,7 @@ class ChunkMesh(private val chunk: Chunk) {
         vertices.clear()
 
         // Generate mesh for each of the 6 faces
-        for (face in Face.entries) {
+        for (face in Face.values()) {
             generateFace(face, atlas)
         }
 
@@ -45,8 +45,7 @@ class ChunkMesh(private val chunk: Chunk) {
 
         // Iterate through each layer of the chunk's 3D volume
         for (layer in 0 until sliceD) {
-            // *** FIX: Mask now stores blockID (or 0) instead of a boolean. ***
-            // This is crucial for merging faces of the same block type only.
+            // Mask stores blockID (or 0)
             val mask = Array(sliceW) { IntArray(sliceH) }
 
             // 1. Create the mask for the current slice
@@ -62,17 +61,24 @@ class ChunkMesh(private val chunk: Chunk) {
 
                     // A face is visible if the neighbor is transparent and this block is not.
                     // This prevents rendering faces between two transparent blocks (e.g. water-glass).
-                    if (currentBlock.id != Blocks.AIR.id && !currentBlock.isTransparent && neighborBlock.isTransparent) {
+                    if (currentBlock.id != Blocks.AIR.id && !currentBlock.transparent && neighborBlock.transparent) {
                         mask[x][y] = currentBlockId
+                    } else {
+                        mask[x][y] = 0
                     }
                 }
             }
 
             // 2. Generate quads from the mask using the greedy algorithm
-            for (y in 0 until sliceH) {
-                for (x in 0 until sliceW) {
+            var y = 0
+            while (y < sliceH) {
+                var x = 0
+                while (x < sliceW) {
                     val blockId = mask[x][y]
-                    if (blockId == 0) continue
+                    if (blockId == 0) {
+                        x++
+                        continue
+                    }
 
                     // Find the width of the quad
                     var w = 1
@@ -102,13 +108,16 @@ class ChunkMesh(private val chunk: Chunk) {
                             mask[x + i][y + j] = 0
                         }
                     }
+
+                    x += w
                 }
+                y++
             }
         }
     }
 
     /**
-     * FIX: Rewritten to correctly generate 4 vertices for a quad on any face.
+     * Rewritten to correctly generate quads for the face and compute UVs from textureX/textureY.
      */
     private fun addQuad(
         sliceX: Int, sliceY: Int, layer: Int,
@@ -116,22 +125,20 @@ class ChunkMesh(private val chunk: Chunk) {
         face: Face, blockId: Int, atlas: TextureAtlas
     ) {
         val block = Blocks.getById(blockId)
-        val textureIndex = when (face) {
-            Face.TOP    -> block.topTexture
-            Face.BOTTOM -> block.bottomTexture
-            else        -> block.sideTexture
-        }
+        // compute texture index (tile index in atlas)
+        val textureIndex = block.textureIndex()
+        // tile size in atlas
+        val tilesPerRow = 16f
+        val u0 = (textureIndex % tilesPerRow) / tilesPerRow
+        val v0 = (textureIndex / tilesPerRow) / tilesPerRow
+        val uSize = 1f / tilesPerRow
+        val vSize = 1f / tilesPerRow
 
-        // TODO: Get real UVs from TextureAtlas
-        val u0 = (textureIndex % 16) / 16f
-        val v0 = (textureIndex / 16) / 16f
-        val uSize = 1f/16f
-        val vSize = 1f/16f
-
+        // For quads that span multiple tiles we extend uv by the width/height in tiles
         val u1 = u0 + uSize * width
         val v1 = v0 + vSize * height
 
-        // TODO: Implement a real Ambient Occlusion calculation
+        // Simple AO placeholder (all 1.0)
         val ao = floatArrayOf(1.0f, 1.0f, 1.0f, 1.0f)
 
         val x1 = sliceX.toFloat()
@@ -143,9 +150,11 @@ class ChunkMesh(private val chunk: Chunk) {
         when (face) {
             Face.TOP -> { // +Y
                 val y = l + 1f - Chunk.MIN_Y
+                // Triangles using two triangles (6 vertices)
                 addVertex(x1, y, y1, u0, v0, ao[0], 0f, 1f, 0f)
                 addVertex(x1, y, y2, u0, v1, ao[3], 0f, 1f, 0f)
                 addVertex(x2, y, y2, u1, v1, ao[2], 0f, 1f, 0f)
+
                 addVertex(x1, y, y1, u0, v0, ao[0], 0f, 1f, 0f)
                 addVertex(x2, y, y2, u1, v1, ao[2], 0f, 1f, 0f)
                 addVertex(x2, y, y1, u1, v0, ao[1], 0f, 1f, 0f)
@@ -155,33 +164,37 @@ class ChunkMesh(private val chunk: Chunk) {
                 addVertex(x1, y, y1, u0, v0, ao[0], 0f, -1f, 0f)
                 addVertex(x2, y, y1, u1, v0, ao[1], 0f, -1f, 0f)
                 addVertex(x2, y, y2, u1, v1, ao[2], 0f, -1f, 0f)
+
                 addVertex(x1, y, y1, u0, v0, ao[0], 0f, -1f, 0f)
                 addVertex(x2, y, y2, u1, v1, ao[2], 0f, -1f, 0f)
                 addVertex(x1, y, y2, u0, v1, ao[3], 0f, -1f, 0f)
             }
             Face.NORTH -> { // -Z
                 val z = l.toFloat()
-                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f) // Top-Left
-                addVertex(x1, y2, z, u0, v1, ao[3], 0f, 0f, -1f) // Bottom-Left
-                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f) // Bottom-Right
-                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f) // Top-Left
-                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f) // Bottom-Right
-                addVertex(x2, y1, z, u1, v0, ao[1], 0f, 0f, -1f) // Top-Right
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f)
+                addVertex(x1, y2, z, u0, v1, ao[3], 0f, 0f, -1f)
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f)
+
+                addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, -1f)
+                addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, -1f)
+                addVertex(x2, y1, z, u1, v0, ao[1], 0f, 0f, -1f)
             }
             Face.SOUTH -> { // +Z
-                val z = l.toFloat() + 1
+                val z = l.toFloat() + 1f
                 addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, 1f)
                 addVertex(x2, y1, z, u1, v0, ao[1], 0f, 0f, 1f)
                 addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, 1f)
+
                 addVertex(x1, y1, z, u0, v0, ao[0], 0f, 0f, 1f)
                 addVertex(x2, y2, z, u1, v1, ao[2], 0f, 0f, 1f)
                 addVertex(x1, y2, z, u0, v1, ao[3], 0f, 0f, 1f)
             }
             Face.EAST -> { // +X
-                val x = l.toFloat() + 1
+                val x = l.toFloat() + 1f
                 addVertex(x, y1, x1, u0, v0, ao[0], 1f, 0f, 0f)
                 addVertex(x, y1, x2, u1, v0, ao[1], 1f, 0f, 0f)
                 addVertex(x, y2, x2, u1, v1, ao[2], 1f, 0f, 0f)
+
                 addVertex(x, y1, x1, u0, v0, ao[0], 1f, 0f, 0f)
                 addVertex(x, y2, x2, u1, v1, ao[2], 1f, 0f, 0f)
                 addVertex(x, y2, x1, u0, v1, ao[3], 1f, 0f, 0f)
@@ -191,6 +204,7 @@ class ChunkMesh(private val chunk: Chunk) {
                 addVertex(x, y1, x1, u0, v0, ao[0], -1f, 0f, 0f)
                 addVertex(x, y2, x1, u0, v1, ao[3], -1f, 0f, 0f)
                 addVertex(x, y2, x2, u1, v1, ao[2], -1f, 0f, 0f)
+
                 addVertex(x, y1, x1, u0, v0, ao[0], -1f, 0f, 0f)
                 addVertex(x, y2, x2, u1, v1, ao[2], -1f, 0f, 0f)
                 addVertex(x, y1, x2, u1, v0, ao[1], -1f, 0f, 0f)

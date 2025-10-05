@@ -1,231 +1,120 @@
 package dev.vex.client.menu
 
-import java.io.File
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import java.util.Locale
+import java.util.Locale.getDefault
 
 /**
- * Complete menu state system for the game
+ * Menu node model used by MenuNavigator.
+ *
+ * - `title` is what is displayed.
+ * - `children` are submenu entries (if any).
+ * - `action` is run when the node is activated (Enter on leaf).
+ * - `isInput` indicates a text input field (name/seed) that accepts characters.
+ * - `selectable` toggles whether the node can be focused (useful for headers).
  */
-sealed class MenuState {
-    object MainMenu : MenuState()
-    object SingleplayerMenu : MenuState()
-    data class WorldList(val worlds: List<WorldInfo>) : MenuState()
-    data class CreateWorld(
-        var worldName: String = "New World",
-        var seed: String = "",
-        var biomeSize: String = "Normal",
-        var structures: Boolean = true
-    ) : MenuState()
-    object MultiplayerMenu : MenuState()
-    data class ServerList(val servers: List<ServerInfo>) : MenuState()
-    data class AddServer(var serverName: String = "", var serverIP: String = "", var port: String = "25565") : MenuState()
-    object LANMenu : MenuState()
-    data class LANWorldList(val lanWorlds: List<LANWorldInfo>) : MenuState()
-    object SettingsMenu : MenuState()
-    object ControlsMenu : MenuState()
-    data class Playing(val worldName: String) : MenuState()
-    data class Paused(val worldName: String) : MenuState()
-}
-
-data class WorldInfo(
-    val name: String,
-    val seed: Long,
-    val lastPlayed: LocalDateTime,
-    val gameMode: String = "Survival",
-    val folder: File
-) {
-    fun getLastPlayedFormatted(): String {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        return lastPlayed.format(formatter)
-    }
-}
-
-data class ServerInfo(
-    val name: String,
-    val ip: String,
-    val port: Int,
-    var online: Boolean = false,
-    var playerCount: Int = 0,
-    var maxPlayers: Int = 20
-)
-
-data class LANWorldInfo(
-    val hostName: String,
-    val worldName: String,
-    val ip: String,
-    val port: Int,
-    val playerCount: Int
+data class MenuNode(
+    val id: String,
+    val title: String,
+    val children: MutableList<MenuNode> = mutableListOf(),
+    var action: (() -> Unit)? = null,
+    var isInput: Boolean = false,
+    var inputBuffer: StringBuilder = StringBuilder(),
+    var selectable: Boolean = true
 )
 
 /**
- * Settings configuration
+ * Small builder that creates the full menu tree for the main menu and submenus.
+ * The tree intentionally contains placeholders for lists (worlds, servers, texture packs, mods, features).
+ *
+ * The actual logic for creating worlds, joining servers, executing game, etc. is
+ * performed through callbacks attached by MenuNavigator's listener.
  */
-data class GameSettings(
-    var fov: Float = 70f,
-    var renderDistance: Int = 8,
-    var vsync: Boolean = true,
-    var mouseSensitivity: Float = 0.15f,
+object MenuBuilder {
+    fun createMainMenu(): MenuNode {
+        val root = MenuNode("root", "Main Menu")
 
-    // Controls
-    var keyForward: Int = 87,      // W
-    var keyLeft: Int = 65,         // A
-    var keyBack: Int = 83,         // S
-    var keyRight: Int = 68,        // D
-    var keyJump: Int = 32,         // Space
-    var keySprint: Int = 340,      // Left Shift
-    var keySneak: Int = 341,       // Left Ctrl
-    var keyCrawl: Int = 67,        // C
-    var keyInventory: Int = 69,    // E
-    var keyDrop: Int = 81,         // Q
-    var keyMap: Int = 77,          // M
-    var keyChat: Int = 84          // T
-)
+        // --- Singleplayer ---
+        val singleplayer = MenuNode("singleplayer", "Singleplayer")
+        val worldList = MenuNode("world_list", "World List") // placeholder to be filled by the game
+        val worldSelection = MenuNode("world_select", "World Selection") // placeholder
+        val worldCreation = MenuNode("world_create", "World Creation")
+        val worldNameInput = MenuNode("world_name", "World Name", isInput = true)
+        val worldSeedInput = MenuNode("world_seed", "World Seed", isInput = true)
+        val options = MenuNode("world_options", "Options")
+        val cheatToggle = MenuNode("toggle_cheats", "Enable Cheats") // toggled by action
+        val featureSelector = MenuNode("feature_selector", "Enable/Disable Features")
+        // Placeholder features list
+        val featureList = MenuNode("feature_list", "Feature List")
+        val featureA = MenuNode("feature_a", "Infinite Day/Night")
+        val featureB = MenuNode("feature_b", "No Fall Damage")
+        // set actions explicitly
+        featureA.action = { println("Toggled feature: ${featureA.title}") }
+        featureB.action = { println("Toggled feature: ${featureB.title}") }
+        featureList.children.addAll(listOf(featureA, featureB))
 
-/**
- * World manager for loading/saving worlds
- */
-class WorldManager {
-    private val worldsFolder = File("worlds")
+        val useScripts = MenuNode("use_scripts", "Use Scripts")
+        val dragDropScripts = MenuNode("script_drag_drop", "Drag & Drop scripts (.vex/.vexscript/.kts)")
+        dragDropScripts.selectable = false
 
-    init {
-        if (!worldsFolder.exists()) {
-            worldsFolder.mkdirs()
-        }
-    }
+        // Add structure
+        useScripts.children.add(dragDropScripts)
+        featureSelector.children.add(featureList)
+        options.children.addAll(listOf(cheatToggle, featureSelector, useScripts))
+        worldCreation.children.addAll(listOf(worldNameInput, worldSeedInput, options))
+        singleplayer.children.addAll(listOf(worldList, worldSelection, worldCreation))
 
-    fun listWorlds(): List<WorldInfo> {
-        val worlds = mutableListOf<WorldInfo>()
+        // Generation + play
+        val worldGeneration = MenuNode("world_generation", "World Generation")
+        val playNow = MenuNode("start_singleplayer", "Play (Start Selected / New World)")
+        singleplayer.children.addAll(listOf(worldGeneration, playNow))
 
-        worldsFolder.listFiles()?.forEach { folder ->
-            if (folder.isDirectory) {
-                val levelFile = File(folder, "level.dat")
-                if (levelFile.exists()) {
-                    try {
-                        // Read world info from level.dat
-                        val name = folder.name
-                        val seed = 0L // TODO: Read from file
-                        val lastPlayed = LocalDateTime.now() // TODO: Read from file
+        // --- Multiplayer ---
+        val multiplayer = MenuNode("multiplayer", "Multiplayer (P2P)")
+        val serverList = MenuNode("server_list", "Server List")
+        val serverSelection = MenuNode("server_select", "Server Selection")
+        val serverCreation = MenuNode("server_create", "Server Creation")
+        val serverFeatureSelector = MenuNode("server_feature_selector", "Server Feature Selector")
+        val serverWorldGeneration = MenuNode("server_world_gen", "Server World Generation")
+        val adminConsole = MenuNode("admin_console", "Admin Console")
+        serverCreation.children.addAll(listOf(serverFeatureSelector, serverWorldGeneration, adminConsole))
+        val joinServer = MenuNode("join_server", "Join Server")
+        val addServer = MenuNode("add_server", "Add New Server")
+        val addServerIP = MenuNode("add_server_ip", "Server IP", isInput = true)
+        val addServerPort = MenuNode("add_server_port", "Server Port", isInput = true)
+        val addServerConfirm = MenuNode("add_server_confirm", "Join Server")
+        addServerConfirm.action = { println("Joining server... (placeholder action)") }
+        addServer.children.addAll(listOf(addServerIP, addServerPort, addServerConfirm))
+        multiplayer.children.addAll(listOf(serverList, serverSelection, serverCreation, joinServer, addServer))
 
-                        worlds.add(WorldInfo(name, seed, lastPlayed, "Survival", folder))
-                    } catch (e: Exception) {
-                        println("Failed to load world: ${folder.name}")
-                    }
-                }
-            }
-        }
+        // --- LAN ---
+        val lan = MenuNode("lan", "LAN Co-op")
+        val lanList = MenuNode("lan_list", "LAN World List")
+        val lanSelection = MenuNode("lan_select", "LAN World Selection")
+        val joinLan = MenuNode("join_lan", "Join LAN World")
+        lan.children.addAll(listOf(lanList, lanSelection, joinLan))
 
-        return worlds.sortedByDescending { it.lastPlayed }
-    }
+        // --- Settings ---
+        val settings = MenuNode("settings", "Settings")
+        val controls = MenuNode("controls", "Controls")
+        val controlNames = listOf(
+            "Walk Forwards", "Strafe Left", "Strafe Right", "Walk Backwards", "Lunge",
+            "Run", "Crawl", "Inventory", "Interact", "Punch", "Drop", "Camera Toggle"
+        )
+        controls.children.addAll(controlNames.map { MenuNode("control_${it.lowercase(getDefault()).replace(" ", "_")}", it) })
+        val texturePacks = MenuNode("texture_packs", "Texture Packs")
+        val textureList = MenuNode("texture_list", "Texture Pack List")
+        val mods = MenuNode("mods", "Mods")
+        val modList = MenuNode("mod_list", "Mod List")
+        texturePacks.children.add(textureList)
+        mods.children.add(modList)
+        settings.children.addAll(listOf(controls, texturePacks, mods))
 
-    fun createWorld(name: String, seed: String, biomeSize: String, structures: Boolean): WorldInfo {
-        val sanitizedName = name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val worldFolder = File(worldsFolder, sanitizedName)
+        // --- Quit ---
+        val quit = MenuNode("quit", "Quit Game")
+        quit.action = { println("QUIT selected") } // actual quit triggered via MenuNavigator listener
 
-        if (!worldFolder.exists()) {
-            worldFolder.mkdirs()
-        }
-
-        // Create level.dat
-        val levelFile = File(worldFolder, "level.dat")
-        // TODO: Write world data to file
-        levelFile.writeText("seed=$seed\nbiomeSize=$biomeSize\nstructures=$structures")
-
-        val parsedSeed = if (seed.isEmpty()) System.currentTimeMillis() else {
-            try {
-                seed.toLong()
-            } catch (e: NumberFormatException) {
-                seed.hashCode().toLong()
-            }
-        }
-
-        return WorldInfo(sanitizedName, parsedSeed, LocalDateTime.now(), "Survival", worldFolder)
-    }
-
-    fun deleteWorld(world: WorldInfo) {
-        world.folder.deleteRecursively()
-    }
-}
-
-/**
- * Server list manager
- */
-class ServerManager {
-    private val serversFile = File("servers.dat")
-    private val servers = mutableListOf<ServerInfo>()
-
-    init {
-        loadServers()
-    }
-
-    private fun loadServers() {
-        if (serversFile.exists()) {
-            try {
-                serversFile.readLines().forEach { line ->
-                    val parts = line.split("|")
-                    if (parts.size >= 3) {
-                        servers.add(ServerInfo(
-                            name = parts[0],
-                            ip = parts[1],
-                            port = parts[2].toIntOrNull() ?: 25565
-                        ))
-                    }
-                }
-            } catch (e: Exception) {
-                println("Failed to load servers: ${e.message}")
-            }
-        }
-    }
-
-    fun getServers(): List<ServerInfo> = servers.toList()
-
-    fun addServer(name: String, ip: String, port: Int) {
-        val server = ServerInfo(name, ip, port)
-        servers.add(server)
-        saveServers()
-    }
-
-    fun removeServer(server: ServerInfo) {
-        servers.remove(server)
-        saveServers()
-    }
-
-    private fun saveServers() {
-        try {
-            serversFile.writeText(
-                servers.joinToString("\n") { "${it.name}|${it.ip}|${it.port}" }
-            )
-        } catch (e: Exception) {
-            println("Failed to save servers: ${e.message}")
-        }
-    }
-
-    fun pingServer(server: ServerInfo) {
-        // TODO: Implement actual server ping
-        server.online = false
-        server.playerCount = 0
-    }
-}
-
-/**
- * LAN discovery manager
- */
-class LANManager {
-    private val discoveredWorlds = mutableListOf<LANWorldInfo>()
-
-    fun startDiscovery() {
-        // TODO: Implement UDP broadcast discovery
-        println("Starting LAN discovery...")
-    }
-
-    fun stopDiscovery() {
-        println("Stopping LAN discovery...")
-    }
-
-    fun getDiscoveredWorlds(): List<LANWorldInfo> = discoveredWorlds.toList()
-
-    fun broadcastWorld(worldName: String, port: Int) {
-        // TODO: Implement UDP broadcast
-        println("Broadcasting world: $worldName on port $port")
+        // Assemble root
+        root.children.addAll(listOf(singleplayer, multiplayer, lan, settings, quit))
+        return root
     }
 }

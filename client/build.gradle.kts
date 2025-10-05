@@ -37,6 +37,17 @@ dependencies {
     // JOML for math
     implementation("org.joml:joml:$jomlVersion")
 
+    implementation("org.lwjgl:lwjgl:3.3.6")
+    implementation("org.lwjgl:lwjgl-glfw:3.3.6")
+    implementation("org.lwjgl:lwjgl-opengl:3.3.6")
+    implementation("org.lwjgl:lwjgl-stb:3.3.6")
+
+    runtimeOnly("org.lwjgl:lwjgl::natives-windows") // or natives-linux / natives-macos
+    runtimeOnly("org.lwjgl:lwjgl-glfw::natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-opengl::natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-stb::natives-windows")
+
+
     implementation(project(":common"))
 
     // Kotlin Coroutines

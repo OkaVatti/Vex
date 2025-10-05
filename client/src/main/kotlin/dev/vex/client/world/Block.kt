@@ -1,136 +1,175 @@
 package dev.vex.client.world
 
 /**
- * Defines the properties of a single block type in the world.
- *
- * @property id The unique numeric ID for the block.
- * @property name The human-readable name of the block.
- * @property solid If true, the block is considered solid for physics and collision.
- * @property topTexture The texture atlas index for the top face of the block.
- * @property bottomTexture The texture atlas index for the bottom face. Defaults to topTexture.
- * @property sideTexture The texture atlas index for all vertical faces (N, S, E, W). Defaults to topTexture.
- * @property isOpaque If true, the block fully blocks vision. The renderer will not render faces behind it (face culling).
- * @property isTransparent If true, the block requires alpha blending (e.g., water, glass). Often used for blocks where `isOpaque` is false.
- */
-data class Block(
-    val id: Int,
-    val name: String,
-    val solid: Boolean,
-    val topTexture: Int,
-    val bottomTexture: Int = topTexture,
-    val sideTexture: Int = topTexture,
-    val isOpaque: Boolean = true,
-    val isTransparent: Boolean = false
-)
-
-/**
- * A static registry of all blocks available in the game.
+ * Complete block registry based on blockList.md
+ * Maps block IDs to their properties and texture atlas coordinates
  */
 object Blocks {
-    // Basic Terrain
-    val AIR = Block(0, "Air", solid = false, -1, isOpaque = false) // -1 texture index for no texture
-    val GRASS = Block(1, "Grass", solid = true, 0, bottomTexture = 2, sideTexture = 3)
-    val DIRT = Block(2, "Dirt", solid = true, 2)
-    val SAND = Block(3, "Sand", solid = true, 18)
-    val SILT = Block(4, "Silt", solid = true, 19)
-    val CLAY = Block(5, "Clay", solid = true, 68)
-    val STONE = Block(6, "Stone", solid = true, 1)
-    val COBBLE = Block(7, "Cobblestone", solid = true, 16)
-    val GRANITE = Block(8, "Granite", solid = true, 32)
-    val DIORITE = Block(9, "Diorite", solid = true, 33)
-    val ANDESITE = Block(10, "Andesite", solid = true, 34)
-    val LIMESTONE = Block(11, "Limestone", solid = true, 35)
-    val SANDSTONE = Block(12, "Sandstone", solid = true, 36, bottomTexture = 37, sideTexture = 38)
-    val SLATESTONE = Block(13, "Slatestone", solid = true, 39)
-    val PURESTONE = Block(14, "Purestone", solid = true, 40)
-    val BEDROCK = Block(15, "Bedrock", solid = true, 17)
+    // Atlas columns (used to compute texture index from textureX/textureY)
+    private const val ATLAS_COLS = 16
 
-    // Ores
-    val COAL_ORE = Block(16, "Coal Ore", solid = true, 48)
-    val COPPER_ORE = Block(17, "Copper Ore", solid = true, 49)
-    val TIN_ORE = Block(18, "Tin Ore", solid = true, 50)
-    val SILVER_ORE = Block(19, "Silver Ore", solid = true, 51)
-    val GOLD_ORE = Block(20, "Gold Ore", solid = true, 52)
-    val COBOLT_ORE = Block(21, "Cobalt Ore", solid = true, 53)
-    val LITHIUM_ORE = Block(22, "Lithium Ore", solid = true, 54)
-    val IRON_ORE = Block(23, "Iron Ore", solid = true, 55)
-    val PLATINUM_ORE = Block(24, "Platinum Ore", solid = true, 56)
-    val TITANIUM_ORE = Block(25, "Titanium Ore", solid = true, 57)
-    val MALACHITE_ORE = Block(26, "Malachite Ore", solid = true, 58)
-    val OPAL_ORE = Block(27, "Opal Ore", solid = true, 59)
-    val FIRE_OPAL_ORE = Block(28, "Fire Opal Ore", solid = true, 60)
-    val MOONSTONE_ORE = Block(29, "Moonstone Ore", solid = true, 61)
-    val SAPPHIRE_ORE = Block(30, "Sapphire Ore", solid = true, 62)
-    val RUBY_ORE = Block(31, "Ruby Ore", solid = true, 63)
-    val HEART_RUBY_ORE = Block(32, "Heart Ruby Ore", solid = true, 64)
-    val AMETHYST_ORE = Block(33, "Amethyst Ore", solid = true, 65)
-    val EMERALD_ORE = Block(34, "Emerald Ore", solid = true, 66)
-    val DIAMOND_ORE = Block(35, "Diamond Ore", solid = true, 67)
-    val BLACK_DIAMOND_ORE = Block(36, "Black Diamond Ore", solid = true, 68)
-    val QUARTZ_ORE = Block(37, "Quartz Ore", solid = true, 69)
-    val ROSE_QUARTZ_ORE = Block(38, "Rose Quartz Ore", solid = true, 70)
-    val BLACK_QUARTZ_ORE = Block(39, "Black Quartz Ore", solid = true, 71)
-    val ANTHRACITE_ORE = Block(40, "Anthracite Ore", solid = true, 72)
-    val MAGNESITE_ORE = Block(41, "Magnesite Ore", solid = true, 73)
-    val LUMINUM_ORE = Block(42, "Luminum Ore", solid = true, 74)
+    // Block ID counter
+    private var nextId = 0
+    private fun nextBlockId() = nextId++
 
-    // Wood logs
-    val OAK_LOG = Block(43, "Oak Log", solid = true, 80, bottomTexture = 80, sideTexture = 81)
-    val BIRCH_LOG = Block(44, "Birch Log", solid = true, 82, bottomTexture = 82, sideTexture = 83)
-    val SPRUCE_LOG = Block(45, "Spruce Log", solid = true, 84, bottomTexture = 84, sideTexture = 85)
-    val PINE_LOG = Block(46, "Pine Log", solid = true, 86, bottomTexture = 86, sideTexture = 87)
-    val WILLOW_LOG = Block(47, "Willow Log", solid = true, 88, bottomTexture = 88, sideTexture = 89)
-    val MAPLE_LOG = Block(48, "Maple Log", solid = true, 90, bottomTexture = 90, sideTexture = 91)
-    val RUBBER_LOG = Block(49, "Rubber Log", solid = true, 92, bottomTexture = 92, sideTexture = 93)
+    // Block properties
+    data class BlockProperties(
+        val id: Int,
+        val name: String,
+        val textureX: Int,
+        val textureY: Int,
+        val solid: Boolean = true,
+        val transparent: Boolean = false,
+        val luminance: Int = 0
+    ) {
+        /** Compute a single texture index from (x,y) in the atlas. */
+        fun textureIndex(): Int = textureY * ATLAS_COLS + textureX
+    }
 
-    // Planks
-    val OAK_PLANKS = Block(56, "Oak Planks", solid = true, 96)
-    val BIRCH_PLANKS = Block(57, "Birch Planks", solid = true, 97)
-    val SPRUCE_PLANKS = Block(58, "Spruce Planks", solid = true, 98)
-    val PINE_PLANKS = Block(59, "Pine Planks", solid = true, 99)
-    val WILLOW_PLANKS = Block(60, "Willow Planks", solid = true, 100)
-    val MAPLE_PLANKS = Block(61, "Maple Planks", solid = true, 101)
-    val RUBBER_PLANKS = Block(62, "Rubber Planks", solid = true, 102)
+    // Registry
+    private val registry = mutableMapOf<Int, BlockProperties>()
+    private val nameToId = mutableMapOf<String, Int>()
 
-    // Leaves
-    val OAK_LEAVES = Block(69, "Oak Leaves", solid = true, 112, isOpaque = false, isTransparent = true)
-    val BIRCH_LEAVES = Block(70, "Birch Leaves", solid = true, 113, isOpaque = false, isTransparent = true)
-    val SPRUCE_LEAVES = Block(71, "Spruce Leaves", solid = true, 114, isOpaque = false, isTransparent = true)
-    val PINE_LEAVES = Block(72, "Pine Leaves", solid = true, 115, isOpaque = false, isTransparent = true)
-    val WILLOW_LEAVES = Block(73, "Willow Leaves", solid = true, 116, isOpaque = false, isTransparent = true)
-    val MAPLE_LEAVES = Block(74, "Maple Leaves", solid = true, 117, isOpaque = false, isTransparent = true)
-    val RUBBER_LEAVES = Block(75, "Rubber Leaves", solid = true, 118, isOpaque = false, isTransparent = true)
+    // Natural blocks - Sky
+    val AIR = register("air", 0, 0, solid = false, transparent = true)
+    val CLOUDS = register("clouds", 1, 0, solid = false, transparent = true)
+    val HEAVY_CLOUDS = register("heavy_clouds", 2, 0, solid = false, transparent = true)
 
-    // Flora
-    val TALL_GRASS = Block(76, "Tall Grass", solid = false, 119, isOpaque = false)
+    // Natural blocks - Ground
+    val GRASS = register("grass", 0, 1)
+    val DIRT = register("dirt", 1, 1)
+    val SAND = register("sand", 2, 1)
+    val SILT = register("silt", 3, 1)
+    val GRAVEL = register("gravel", 4, 1)
+    val CLAY = register("clay", 5, 1)
+    val STONE = register("stone", 6, 1)
+    val GRANITE = register("granite", 7, 1)
+    // DIORITE added so WorldGenerator can reference it without missing-symbol errors.
+    val DIORITE = register("diorite", 8, 1)
+    val ANDESITE = register("andesite", 9, 1)
+    val LIMESTONE = register("limestone", 10, 1)
+    val SANDSTONE = register("sandstone", 11, 1)
+    val SLATESTONE = register("slatestone", 12, 1)
+    val PURESTONE = register("purestone", 13, 1)
+    val LUMSTONE = register("lumstone", 14, 1, luminance = 10)
 
-    // Misc
-    val GLASS = Block(203, "Glass", solid = true, 144, isOpaque = false, isTransparent = true)
-    val WATER = Block(278, "Water", solid = false, 160, isOpaque = false, isTransparent = true)
+    // Bedrock
+    val BEDROCK = register("bedrock", 0, 2)
 
-    // --- Block Registry ---
+    // Wood types - Logs (row 3)
+    val OAK_LOG = register("oak_log", 0, 3)
+    val BIRCH_LOG = register("birch_log", 1, 3)
+    val SPRUCE_LOG = register("spruce_log", 2, 3)
+    val MAPLE_LOG = register("maple_log", 3, 3)
+    val WILLOW_LOG = register("willow_log", 4, 3)
+    val RUBBER_LOG = register("rubber_log", 5, 3)
+    val APPLEWOOD_LOG = register("applewood_log", 6, 3)
+    val CHERRY_LOG = register("cherry_log", 7, 3)
+    val LEMONWOOD_LOG = register("lemonwood_log", 8, 3)
+    val LIMEWOOD_LOG = register("limewood_log", 9, 3)
+    val MANDARIN_LOG = register("mandarin_log", 10, 3)
 
-    // A list of all block instances for easy registration.
-    private val allBlocks = listOf(
-        AIR, GRASS, DIRT, SAND, SILT, CLAY, STONE, COBBLE, GRANITE, DIORITE, ANDESITE, LIMESTONE,
-        SANDSTONE, SLATESTONE, PURESTONE, BEDROCK, COAL_ORE, COPPER_ORE, TIN_ORE, SILVER_ORE,
-        GOLD_ORE, COBOLT_ORE, LITHIUM_ORE, IRON_ORE, PLATINUM_ORE, TITANIUM_ORE, MALACHITE_ORE,
-        OPAL_ORE, FIRE_OPAL_ORE, MOONSTONE_ORE, SAPPHIRE_ORE, RUBY_ORE, HEART_RUBY_ORE,
-        AMETHYST_ORE, EMERALD_ORE, DIAMOND_ORE, BLACK_DIAMOND_ORE, QUARTZ_ORE, ROSE_QUARTZ_ORE,
-        BLACK_QUARTZ_ORE, ANTHRACITE_ORE, MAGNESITE_ORE, LUMINUM_ORE, OAK_LOG, BIRCH_LOG,
-        SPRUCE_LOG, PINE_LOG, WILLOW_LOG, MAPLE_LOG, RUBBER_LOG, OAK_PLANKS, BIRCH_PLANKS,
-        SPRUCE_PLANKS, PINE_PLANKS, WILLOW_PLANKS, MAPLE_PLANKS, RUBBER_PLANKS, OAK_LEAVES,
-        BIRCH_LEAVES, SPRUCE_LEAVES, PINE_LEAVES, WILLOW_LEAVES, MAPLE_LEAVES, RUBBER_LEAVES,
-        TALL_GRASS, GLASS, WATER
-    )
+    // Wood types - Planks (row 4)
+    val OAK_PLANKS = register("oak_planks", 0, 4)
+    val BIRCH_PLANKS = register("birch_planks", 1, 4)
+    val SPRUCE_PLANKS = register("spruce_planks", 2, 4)
+    val MAPLE_PLANKS = register("maple_planks", 3, 4)
+    val WILLOW_PLANKS = register("willow_planks", 4, 4)
+    val RUBBER_PLANKS = register("rubber_planks", 5, 4)
+    val APPLEWOOD_PLANKS = register("applewood_planks", 6, 4)
+    val CHERRY_PLANKS = register("cherry_planks", 7, 4)
+    val LEMONWOOD_PLANKS = register("lemonwood_planks", 8, 4)
+    val LIMEWOOD_PLANKS = register("limewood_planks", 9, 4)
+    val MANDARIN_PLANKS = register("mandarin_planks", 10, 4)
 
-    // The registry map, built from the list for fast lookups.
-    private val blockRegistry: Map<Int, Block> = allBlocks.associateBy { it.id }
+    // Leaves (row 5)
+    val OAK_LEAVES = register("oak_leaves", 0, 5, transparent = true)
+    val BIRCH_LEAVES = register("birch_leaves", 1, 5, transparent = true)
+    val SPRUCE_LEAVES = register("spruce_leaves", 2, 5, transparent = true)
+    val MAPLE_LEAVES = register("maple_leaves", 3, 5, transparent = true)
+    val WILLOW_LEAVES = register("willow_leaves", 4, 5, transparent = true)
+
+    // Flowers (row 6-7)
+    val CRIMSON_ROSALIA = register("crimson_rosalia", 0, 6, solid = false)
+    val ORANGE_TULIP = register("orange_tulip", 1, 6, solid = false)
+    val DANDELION = register("dandelion", 2, 6, solid = false)
+    val LINDEN_FLOWER = register("linden_flower", 3, 6, solid = false)
+    val CACTUS = register("cactus", 4, 6)
+    val LUMI_LILY = register("lumi_lily", 5, 6, solid = false, luminance = 7)
+    val AETHAE_HYDRANGEA = register("aethae_hydrangea", 6, 6, solid = false)
+    val LOBELIA_AZURAE = register("lobelia_azurae", 7, 6, solid = false)
+    val AZURE_ORCHIDAE = register("azure_orchidae", 8, 6, solid = false)
+    val CORNFLOWER = register("cornflower", 9, 6, solid = false)
+    val INDIGO_ROSALIA = register("indigo_rosalia", 10, 6, solid = false)
+    val PURPLE_TULIP = register("purple_tulip", 11, 6, solid = false)
+    val PETUNIAS = register("petunias", 12, 6, solid = false)
+    val PINK_HIBISCUS = register("pink_hibiscus", 13, 6, solid = false)
+    val ROSALIA_DE_LA_MUERTE = register("rosalia_de_la_muerte", 14, 6, solid = false)
+
+    // Tall grass / vegetation
+    val TALL_GRASS = register("tall_grass", 0, 7, solid = false, transparent = true)
+
+    // Ores (row 8-10)
+    val COAL_ORE = register("coal_ore", 0, 8)
+    val COPPER_ORE = register("copper_ore", 1, 8)
+    val TIN_ORE = register("tin_ore", 2, 8)
+    val SILVER_ORE = register("silver_ore", 3, 8)
+    val GOLD_ORE = register("gold_ore", 4, 8)
+    val COBOLT_ORE = register("cobolt_ore", 5, 8)
+    val LITHIUM_ORE = register("lithium_ore", 6, 8)
+    val IRON_ORE = register("iron_ore", 7, 8)
+    val PLATINUM_ORE = register("platinum_ore", 8, 8)
+    val TITANIUM_ORE = register("titanium_ore", 9, 8)
+    val MALACHITE_ORE = register("malachite_ore", 10, 8)
+
+    // Gems
+    val DIAMOND_ORE = register("diamond_ore", 0, 9)
+    val EMERALD_ORE = register("emerald_ore", 1, 9)
+    val RUBY_ORE = register("ruby_ore", 2, 9)
+    val SAPPHIRE_ORE = register("sapphire_ore", 3, 9)
+    val AMETHYST_ORE = register("amethyst_ore", 4, 9)
+    val OPAL_ORE = register("opal_ore", 5, 9)
+
+    // Functional blocks (row 11-12)
+    val WORKBENCH = register("workbench", 0, 11)
+    val KILN = register("kiln", 1, 11)
+    val CHEST = register("chest", 2, 11)
+
+    // Glass
+    val GLASS = register("glass", 0, 12, transparent = true)
+    val WATER = register("water", 1, 12, solid = false, transparent = true)
+
+    // Helper functions
+    private fun register(
+        name: String,
+        textureX: Int,
+        textureY: Int,
+        solid: Boolean = true,
+        transparent: Boolean = false,
+        luminance: Int = 0
+    ): BlockProperties {
+        val id = nextBlockId()
+        val props = BlockProperties(id, name, textureX, textureY, solid, transparent, luminance)
+        registry[id] = props
+        nameToId[name] = id
+        return props
+    }
 
     /**
-     * Retrieves a block by its numeric ID.
-     * @param id The ID of the block to retrieve.
-     * @return The corresponding [Block] instance, or [AIR] if the ID is not found.
+     * Return a non-null BlockProperties for id. If id unknown, return AIR.
+     * This avoids nullable callers and simplifies rendering logic.
      */
-    fun getById(id: Int): Block = blockRegistry[id] ?: AIR
+    fun getById(id: Int): BlockProperties {
+        return registry[id] ?: registry[AIR.id]!!
+    }
+
+    /**
+     * Return a non-null BlockProperties by name (fallback to AIR).
+     */
+    fun getByName(name: String): BlockProperties {
+        val id = nameToId[name]
+        return if (id != null) registry[id]!! else registry[AIR.id]!!
+    }
+
+    fun getAllBlocks(): Collection<BlockProperties> = registry.values
 }

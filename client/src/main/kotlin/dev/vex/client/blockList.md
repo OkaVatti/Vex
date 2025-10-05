@@ -1,0 +1,356 @@
+# Blocks
+
+## Natural
+
+- Sky
+  - Air
+  - Clouds
+  - Heavy Clouds
+- Ground
+  - Grass
+  - Dirt
+  - Sand
+  - Silt
+  - Gravel
+  - Clay
+  - Stone
+  - Granite
+  - Andesite
+  - Limestone
+  - Sandstone
+  - Slatestone
+  - Purestone
+  - Lumstone
+- Wood Types (Logs, Planks, Stairs, Slabs (Horizontal and Vertical), Doors, Chests, Signs)
+  - Oka
+  - Birch
+  - Spruce
+  - Mapel
+  - Willow
+  - Rubber
+  - Applewood
+  - Cherry
+  - Lemonwood
+  - Limewood
+  - Mandarin
+- Flowers (in order of color)
+  - Crimson Rosalia
+  - Orange Tulip
+  - Dandelion
+  - Linden / Lime Flower
+  - Cactus
+  - Lumi Lily (Magical Glowering Turquoise Flower)
+  - Aethae Hydrangea
+  - Lobelia Azurae
+  - Azure Orchidae
+  - Cornflower
+  - Indigo Rosalia
+  - Purple Tulip
+  - Petunias
+  - Pink Hibiscus
+  - Rosalia De La Muerte (Black Rose)
+- Foodstuffs
+  - Fruit Blocks
+    - Apple Leaves
+    - Blackberry Bush
+    - Blueberry Bush
+    - Cherry Leaves
+    - Crystal Apple Leaves
+    - Lemon Leaves
+    - Lime Leaves
+    - Mandarin Leaves
+    - Pumpkin
+    - Raspberry Bash
+    - Strawberry Bush
+    - Sweetberry Bush
+  - Veggie Blocks
+    - Wheat Crop
+    - Carrot Crop
+    - Potato Crop
+    - Sweet Potato Crop
+    - Tomato Crop
+    - Onion Crop
+    - Garlic Crop
+    - Broccoli Crop
+    - Cauliflower Crop
+    - Pumpkin Crop
+    - 
+  - Cakes and Pies (Consumable Slabs)
+    - Apple Cream Cheesecake
+    - Banana Cream Cheesecake
+    - Banana Cream Pie
+    - Blueberry Pie
+    - Blackberry Cake
+    - Blackberry Pie
+    - Blueberry Cream Cheesecake
+    - Candy Apple Pie
+    - Key Lime Pie
+    - Lemon Cream Pie
+    - Lemon-Lime Ice Cream Cake
+    - Mandarin Cream Cheesecake
+    - Mandarin Cream Pie
+    - Pumpkin Cake
+    - Pumpkin Pie
+- Ore Types (for all stone types)
+  - Metals
+    - Coal
+    - Copper
+    - Tin
+    - Silver
+    - Gold
+    - Cobolt
+    - Lithium
+    - Iron
+    - Platinum
+    - Titanium
+    - Malachite
+  - Gems
+    - Opal
+    - Fire Opal
+    - Moonstone
+    - Sapphire
+    - Star Sapphire
+    - Ruby
+    - Heart Ruby
+    - Amethyst
+    - Emerald
+    - Diamond
+    - Black Diamond
+    - Obsidian
+    - Fire Obsidian
+  - Oceanic Gems
+    - Pearl
+    - Black Pearl
+  - Cystals
+    - Quartz
+    - Rose Quartz
+    - Black Quartz
+    - Anthracite
+    - Magnesite
+    - Luminum
+
+## Crafted, Smelted, Refined
+
+- Functional Blocks
+  - Workbench
+  - Advanced Workbench
+  - Kiln
+  - Blast Kiln
+  - Crucible
+  - Mill
+  - Barrel (All Wood, Metal, and Alloy Types)
+  - Grindstone
+  - Map Table
+  - Advanced Map Table
+  - Paintings
+    - Supported Aspect Ratios (in blocks)
+      - 1x1
+        - 8 paintings
+          - [ ] Dust II Online
+          - [ ] Condition Zero
+          - [ ] Office Kitchen
+          - [ ] Office Garage
+          - [ ] Dust B-Site
+          - [ ] Rust
+          - [ ] Nuketown
+          - [ ] 
+      - 1x2
+        - 6 paintings
+          - [ ] House
+          - [ ] Frankenstein
+          - [ ] Scarecrow
+      - 2x2
+        - 4 paintings
+          - [ ] Lithium 
+            - (Single, Cover Art)
+          - [ ] Best Buds 
+            - (Album, Cover Art)
+          - [ ] Grow Up, Dude (Demos)
+            - (LP, Cover Art)
+          - [ ] You'll Be Back When Things Fall Apart
+            - (Album, Cover Art)
+      - 2x3
+        - 2 paintings
+          - [ ] Kombat
+            - Mortal Kombat IV reference
+          - [ ] Legend
+            - The Legend of Zelda Twilight Princess reference
+      - 3x2
+        - 5 paintings
+          - [ ] The Castle
+          - [ ] Witches Sabbath
+            - Goya Painting
+          - [ ] Ghostly Vision
+            - Goya Painting
+          - [ ] The Garden
+            - Over The Garden Wall Reference
+          - [ ] The Pilgrim
+            - Over The Garden Wall Reference
+      - 3x3
+        - 4 paintings
+          - Nature of Giving
+            - Based on the following painting
+            - ![https://c4.wallpaperflare.com/wallpaper/169/628/906/painting-depressing-horror-sadness-wallpaper-preview.jpg](https://c4.wallpaperflare.com/wallpaper/169/628/906/painting-depressing-horror-sadness-wallpaper-preview.jpg)
+          - 3x4
+        - 4 paintings
+          - The Colossus
+            - Shadow of the Colossus reference
+      - 4x4
+        - 2 Painting
+          - [ ] The Eternal Night
+          - [ ] Nature of Fear
+            - ![https://c4.wallpaperflare.com/wallpaper/186/71/794/oil-painting-horror-depressing-sadness-wallpaper-preview.jpg](https://c4.wallpaperflare.com/wallpaper/186/71/794/oil-painting-horror-depressing-sadness-wallpaper-preview.jpg)
+      - 4x5
+        - 2 paintings
+          - Tapestry
+            - Old Scottish Tapestry depicting a ruined castle, a deer, and a bird
+          - Face of NULL
+            - Animated Painting
+            - Slowly changes over time
+            - Hidden black figure watching in the distance
+      - 4x6
+        - 2 paintings
+  - Cobolt Functional Blocks
+    - Cobolt Dust
+      - Can be placed
+        - on blocks touching air,
+        - or underwater,
+        - horizontally,
+        - vertically,
+        - on blocks,
+        - on stairs (all directions),
+        - slabs (horizontal and vertical)
+    - Cobolt Extender
+      - Can be placed
+        - on blocks touching air,
+        - or underwater,
+        - horizontally,
+        - vertically,
+        - on blocks,
+    - Cobolt Block
+      - Increases or Decreases Block by configurable amount
+    - Cobolt AND Gate
+    - Cobolt OR Gate
+    - Cobolt NOT Gate
+    - Cobolt NAND Gate
+    - Cobolt NOR Gate
+    - Cobolt XOR Gate
+    - Cobolt XNOR Gate
+    - Salt Lamp
+      - Light Source Powered by Cobolt Signals
+    - Luminum Lamp
+      - Monochromatic Light Source Powered by Cobolt Signals 
+    - Colourium Lamp
+      - Polychromatic Light Source Powered by Cobolt Signals
+    - Item Plaque
+      - Displays any item
+    - Block Enclosure
+      - Displays Special Blocks within a glass case
+    - Door (All Wood, Metal and Gem Types)
+    - Trapdoor (All Wood, Metal, and Gem Types)
+    - Bundle of Thermite Explosives
+    - Bundle of Dynomite Explosives
+    - Bundle of C4 Explosives
+    - Bundle of C2 Explosives
+    - Tripwire
+    - Wire
+
+*electronic items can be slotted into their respective slots for customizable functionality.*
+*certain electronic blocks can be programmed with any of the available embedded languages;*
+
+- HTML, Vue
+  - (with)
+    - CSS
+    - Lua (Scripting/Programming)
+    - Typescript (Scripting/Programming) 
+- Kotlin
+
+
+- Electronics Blocks
+  - Cable
+  - Thick Cable
+  - Communication Cable
+  - Network Cable
+  - Fiber Network Cable
+  - Universal Cable
+  - Advanced Universal Cable
+  - Chassis (All Metal, Gem, and Plastic Types)
+    - [ ] Mini Metal Chassis
+    - [ ] Small Metal Chassis
+    - [ ] Medium Metal Chassis
+    - [ ] Large Metal Chassis
+    - [ ] XL Metal Chassis
+    - [ ] Mini Plastic Chassis
+    - [ ] Small Plastic Chassis
+    - [ ] Medium Plastic Chassis
+    - [ ] Large Plastic Chassis
+    - [ ] XL Plastic Chassis
+
+*/
+electronic blocks of specific configurations 
+will be regarded as one of the types of `Computer` blocks;
+meaning they will have textures assigned to specific 
+functionalities based on user configuration. 
+/*
+
+- Computers
+  - [ ] Mini Computer
+  - [ ] Small Computer
+  - [ ] Personal Computer
+  - [ ] Workstation
+  - [ ] Server
+  - [ ] Router
+  - [ ] Advanced Router
+  - [ ] Wireless Router
+  - [ ] Advanced Wireless Router
+  - [ ] Switch
+  - [ ] Advanced Switch
+  - [ ] Wireless Access Point
+  - [ ] Advanced Wireless Access Point
+- Planks (All Wood Types)
+- Stairs (All Wood, Metal, and Gem Types)
+- Slabs (All Wood, Metal, and Gem Types) (Vertical and Horizontal)
+- Wool (Of all available Colors)
+- Carpet (Of all available Colors)
+
+*/
+Program Blocks utilize the VexScript Programming language, 
+please reference the following design document:
+[VexScript.md](./VexScript.md)
+/*
+
+- Program Blocks 
+  - Import Block
+    - Initial Block Used for all in-game VexScript programs
+    - Connects and Interacts with all other program blocks
+    - ```
+      API COMMAND {
+          SUMMON(ANIMAL_DEER:)
+      }
+      ```
+  - Function Block
+    - 
+  - Object Block
+  - API Block
+  - Interface Block
+- Metals
+  - Copper Block
+  - Tin Block
+  - Silver Block
+  - Gold Block
+  - Cobolt Block
+  - Lithium Salt Block
+  - Magnesium Block
+  - Iron Block
+  - Platinum Block
+  - Malachite Block
+  - Titanium Block
+- Alloy Metals 
+  - Bronze Block
+  - Orichalcum Block
+  - Steel Block
+  - Blue Steel Block
+- Crafted Fuel (Ore and Block variants)
+  - Coal
+  - Charcoal
+  - Anthracite

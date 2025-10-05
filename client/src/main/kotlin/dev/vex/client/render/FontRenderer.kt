@@ -1,151 +1,144 @@
 package dev.vex.client.render
 
-import org.lwjgl.opengl.GL11
+import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11.*
-import java.awt.Font
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
+import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
+import org.lwjgl.stb.STBImage.*
+import org.lwjgl.system.MemoryStack
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.nio.IntBuffer
 
 /**
- * Simple runtime bitmap font renderer.
+ * Simple FontRenderer which tries to load an ASCII font atlas image (expected layout: 16x16 grid,
+ * 256 glyphs). If loading fails it falls back to drawing plain quads for each character so UI text
+ * remains visible.
+ *
+ * drawText(x,y,text,scale) draws text using immediate-mode textured quads (or fallback quads).
  */
-class FontRenderer(
-    val fontName: String = "SansSerif",
-    val fontStyle: Int = Font.PLAIN,
-    val fontSize: Int = 20
-) {
+class FontRenderer(private val filepath: String) {
     private var textureId = 0
+    var isLoaded = false
+        private set
 
-    // Exposed so UI can measure approximations
-    val glyphInfos: Array<GlyphInfo?> = arrayOfNulls(127)
-    val ascent: Int
-
-    data class GlyphInfo(val x: Int, val y: Int, val w: Int, val h: Int, val xOffset: Int, val yOffset: Int, val xAdvance: Int)
+    // assumed glyph grid
+    private val glyphsPerRow = 16
+    private val glyphWidthPx = 8
+    private val glyphHeightPx = 8
 
     init {
-        // build font texture and fill glyphInfos, ascent
-        val font = Font(fontName, fontStyle, fontSize)
-        val tmp = BufferedImage(1,1,BufferedImage.TYPE_INT_ARGB)
-        val gtmp = tmp.createGraphics()
-        gtmp.font = font
-        val fm = gtmp.fontMetrics
-        ascent = fm.ascent
-        gtmp.dispose()
-
-        createFontTexture(font)
+        try {
+            loadTexture(filepath)
+            isLoaded = true
+            println("FontRenderer: loaded '$filepath' as GL texture #$textureId")
+        } catch (e: Exception) {
+            isLoaded = false
+            println("FontRenderer: failed to load '$filepath' - using placeholder. Reason: ${e.message}")
+        }
     }
 
-    private fun createFontTexture(font: Font) {
-        val glyphs = (32..126).map { it.toChar() }
-        val tmpImg = BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
-        val g2d = tmpImg.createGraphics()
-        g2d.font = font
-        val fm = g2d.fontMetrics
-        val glyphH = fm.height
-        val maxGlyphW = glyphs.map { fm.charWidth(it) }.maxOrNull() ?: fontSize
-        val cols = glyphs.size
-        val textureWidth = maxOf(256, cols * (maxGlyphW + 2))
-        val textureHeight = maxOf(64, glyphH + 4)
+    private fun loadTexture(path: String) {
+        MemoryStack.stackPush().use { stack ->
+            val x = stack.mallocInt(1)
+            val y = stack.mallocInt(1)
+            val comp = stack.mallocInt(1)
 
-        val img = BufferedImage(textureWidth, textureHeight, BufferedImage.TYPE_INT_ARGB)
-        val g = img.createGraphics()
-        g.font = font
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-        g.color = java.awt.Color(0, 0, 0, 0)
-        g.fillRect(0, 0, textureWidth, textureHeight)
-        g.color = java.awt.Color.WHITE
+            // stbi_load expects a forward slash or platform path; allow either
+            val image: ByteBuffer? = stbi_load(path.replace('/', java.io.File.separatorChar), x, y, comp, 4)
+                ?: stbi_load(path, x, y, comp, 4)
 
-        var x = 1
-        for (ch in glyphs) {
-            val w = g.fontMetrics.charWidth(ch)
-            val h = g.fontMetrics.height
-            g.drawString(ch.toString(), x, g.fontMetrics.ascent)
-            glyphInfos[ch.code] = GlyphInfo(x, 0, w, h, 0, 0, w)
-            x += w + 2
-        }
-        g.dispose()
-
-        // upload to GL
-        val pixels = IntArray(textureWidth * textureHeight)
-        img.getRGB(0, 0, textureWidth, textureHeight, pixels, 0, textureWidth)
-        val buffer = ByteBuffer.allocateDirect(textureWidth * textureHeight * 4).order(ByteOrder.nativeOrder())
-        for (i in 0 until textureWidth * textureHeight) {
-            val col = pixels[i]
-            buffer.put(((col shr 16) and 0xFF).toByte())
-            buffer.put(((col shr 8) and 0xFF).toByte())
-            buffer.put((col and 0xFF).toByte())
-            buffer.put(((col ushr 24) and 0xFF).toByte())
-        }
-        buffer.flip()
-
-        textureId = glGenTextures()
-        glBindTexture(GL_TEXTURE_2D, textureId)
-        glPixelStorei(GL_UNPACK_ALIGNMENT, GL11.GL_CLAMP)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL11.GL_CLAMP)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer)
-        glBindTexture(GL_TEXTURE_2D, 0)
-    }
-
-    fun drawText(x: Float, y: Float, text: String, scale: Float = 1.0f) {
-        if (textureId == 0) return
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glEnable(GL_TEXTURE_2D)
-        glBindTexture(GL_TEXTURE_2D, textureId)
-
-        // Save matrices then use orthographic coordinates (UI caller sets ortho around draw calls)
-        glMatrixMode(GL_MODELVIEW)
-        glPushMatrix()
-        glLoadIdentity()
-
-        // simple pen
-        var penX = x
-        val penY = y + ascent * scale
-
-        // texture info: we don't need to know texture dims here — glyphs were packed on creation
-        val texW = 1f // we'll sample using glyph pixel positions by computing UVs inside draw calls if needed
-        // but our earlier simple approach draws quads referencing positions assuming glyphs were packed left-to-right.
-        // For simplicity, we compute the UVs using the stored glyphInfos positions relative to the texture width:
-        val w = 1 // not used in this simplified method; actual drawQuad uses pixel UVs computed earlier in createFontTexture
-
-        // draw characters
-        for (ch in text.toCharArray()) {
-            val ci = ch.code
-            val info = glyphInfos.getOrNull(ci)
-            if (info == null) {
-                penX += 4f * scale
-                continue
+            if (image == null) {
+                throw RuntimeException("Failed to read texture file '$path': ${stbi_failure_reason()}")
             }
-            val glyphW = info.w * scale
-            val glyphH = info.h * scale
 
-            // We don't have direct stored texture dimensions in this simplified snippet — keep behaviour lightweight:
-            // draw a white rectangle as placeholder glyph (the UI uses this only for measurement if font fails)
-            glBegin(GL_QUADS)
-            glVertex2f(penX, penY - glyphH)
-            glVertex2f(penX + glyphW, penY - glyphH)
-            glVertex2f(penX + glyphW, penY)
-            glVertex2f(penX, penY)
-            glEnd()
+            val width = x.get(0)
+            val height = y.get(0)
 
-            penX += info.xAdvance * scale
+            textureId = glGenTextures()
+            glBindTexture(GL_TEXTURE_2D, textureId)
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+            // Upload (the image buffer is RGBA)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image)
+            glBindTexture(GL_TEXTURE_2D, 0)
+
+            stbi_image_free(image)
+        }
+    }
+
+    /**
+     * Draw a string at pixel-space coordinates (top-left origin) using immediate-mode GL.
+     * scale is a multiplier for glyph pixel size.
+     */
+    fun drawText(x: Float, y: Float, text: String, scale: Float = 1.0f) {
+        if (isLoaded && textureId != 0) {
+            glEnable(GL_TEXTURE_2D)
+            glBindTexture(GL_TEXTURE_2D, textureId)
+        } else {
+            // no texture; make sure texturing is disabled for fallback rectangles
+            glDisable(GL_TEXTURE_2D)
+        }
+
+        glPushMatrix()
+        // immediate-mode uses current color; caller usually sets it
+        var penX = x
+        val penY = y
+
+        // If using atlas, compute UV per glyph based on 16x16 grid
+        val atlasCellW = 1.0f / glyphsPerRow.toFloat()
+        val atlasCellH = 1.0f / glyphsPerRow.toFloat()
+
+        for (ch in text) {
+            val code = ch.code and 0xFF
+            val gx = (code % glyphsPerRow)
+            val gy = (code / glyphsPerRow)
+
+            val px = penX
+            val py = penY
+            val w = glyphWidthPx * scale
+            val h = glyphHeightPx * scale
+
+            if (isLoaded && textureId != 0) {
+                val u0 = gx * atlasCellW
+                val v0 = gy * atlasCellH
+                val u1 = u0 + atlasCellW
+                val v1 = v0 + atlasCellH
+
+                glBegin(GL_QUADS)
+                glTexCoord2f(u0, v0); glVertex2f(px, py)
+                glTexCoord2f(u0, v1); glVertex2f(px, py + h)
+                glTexCoord2f(u1, v1); glVertex2f(px + w, py + h)
+                glTexCoord2f(u1, v0); glVertex2f(px + w, py)
+                glEnd()
+            } else {
+                // fallback: draw a visible rectangle per glyph (so menu text is visible)
+                glBegin(GL_QUADS)
+                glVertex2f(px, py)
+                glVertex2f(px, py + h)
+                glVertex2f(px + w, py + h)
+                glVertex2f(px + w, py)
+                glEnd()
+            }
+
+            penX += (glyphWidthPx + 1) * scale
         }
 
         glPopMatrix()
-        glBindTexture(GL_TEXTURE_2D, 0)
-        glDisable(GL_TEXTURE_2D)
-        glDisable(GL_BLEND)
+
+        if (isLoaded && textureId != 0) {
+            glBindTexture(GL_TEXTURE_2D, 0)
+            glDisable(GL_TEXTURE_2D)
+        }
     }
 
     fun cleanup() {
         if (textureId != 0) {
             glDeleteTextures(textureId)
+            textureId = 0
         }
     }
 }

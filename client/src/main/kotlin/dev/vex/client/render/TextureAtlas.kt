@@ -1,96 +1,148 @@
 package dev.vex.client.render
 
-import org.lwjgl.opengl.GL11
-import org.lwjgl.stb.STBImage
+import org.lwjgl.opengl.GL11.*
+import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
+import org.lwjgl.opengl.GL13.*
+import org.lwjgl.opengl.GL30.glGenerateMipmap
 import org.lwjgl.system.MemoryStack
+import org.lwjgl.system.MemoryUtil
+import org.lwjgl.stb.STBImage
 import java.nio.ByteBuffer
+import java.nio.IntBuffer
+import java.nio.file.Files
+import java.nio.file.Paths
 
 /**
- * Manages an OpenGL texture atlas.
- * Handles loading from file and creating a placeholder if loading fails.
+ * Simple texture atlas loader using STBImage + OpenGL.
+ *
+ * Usage supported by the rest of the code:
+ *  - TextureAtlas("path/to/atlas.png").load()
+ *  - TextureAtlas.createPlaceholder()
+ *  - atlas.bind()
+ *  - atlas.cleanup()
  */
-class TextureAtlas(private val filepath: String) {
-    private var textureId: Int = 0
+class TextureAtlas(
+    private val filepath: String? = null,
+    val gridCols: Int = 16,
+    val gridRows: Int = 16
+) {
+    var textureId: Int = 0
+        private set
+    var width: Int = 0
+        private set
+    var height: Int = 0
+        private set
+    var channels: Int = 0
+        private set
 
+    /**
+     * Load the texture from the filepath provided in the constructor.
+     * Must be called after an OpenGL context is created.
+     */
     fun load() {
+        val path = filepath ?: throw IllegalArgumentException("No filepath provided to TextureAtlas.load()")
+        val bytes = try {
+            Files.readAllBytes(Paths.get(path))
+        } catch (ex: Exception) {
+            throw RuntimeException("Failed to read texture file '$path': ${ex.message}", ex)
+        }
+
+        val buffer = MemoryUtil.memAlloc(bytes.size)
+        buffer.put(bytes)
+        buffer.flip()
+
+        STBImage.stbi_set_flip_vertically_on_load(true)
         MemoryStack.stackPush().use { stack ->
-            val w = stack.mallocInt(1)
-            val h = stack.mallocInt(1)
-            val channels = stack.mallocInt(1)
+            val w: IntBuffer = stack.mallocInt(1)
+            val h: IntBuffer = stack.mallocInt(1)
+            val ch: IntBuffer = stack.mallocInt(1)
 
-            // Load image data
-            STBImage.stbi_set_flip_vertically_on_load(true)
-            val imageBuffer = STBImage.stbi_load(filepath, w, h, channels, 4)
-                ?: throw RuntimeException("Failed to load texture: $filepath\n${STBImage.stbi_failure_reason()}")
+            val image: ByteBuffer? = STBImage.stbi_load_from_memory(buffer, w, h, ch, 0)
+            MemoryUtil.memFree(buffer)
 
-            // Create OpenGL texture
-            textureId = GL11.glGenTextures()
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
+            if (image == null) {
+                val reason = STBImage.stbi_failure_reason()
+                throw RuntimeException("Failed to load image '$path' with STB: $reason")
+            }
 
-            // Set texture parameters for pixelated style
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST)
+            width = w.get(0)
+            height = h.get(0)
+            channels = ch.get(0)
 
-            // Upload texture data to GPU
-            GL11.glTexImage2D(
-                GL11.GL_TEXTURE_2D,
-                0,
-                GL11.GL_RGBA,
-                w.get(0),
-                h.get(0),
-                0,
-                GL11.GL_RGBA,
-                GL11.GL_UNSIGNED_BYTE,
-                imageBuffer
-            )
+            // Create GL texture
+            textureId = glGenTextures()
+            glBindTexture(GL_TEXTURE_2D, textureId)
 
-            // Free image data from memory
-            STBImage.stbi_image_free(imageBuffer)
+            // Filtering and wrap
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+            // Upload pixel data
+            val format = when (channels) {
+                3 -> GL_RGB
+                4 -> GL_RGBA
+                else -> GL_RGBA
+            }
+
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, image)
+            glGenerateMipmap(GL_TEXTURE_2D)
+
+            STBImage.stbi_image_free(image)
+            glBindTexture(GL_TEXTURE_2D, 0)
         }
     }
 
-    fun bind() {
-        if (textureId != 0) {
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
+    /** Bind to texture unit 0 by default */
+    fun bind() = bind(0)
+
+    /** Bind to a specified texture unit */
+    fun bind(unit: Int) {
+        // Query supported units and clamp requested unit to valid range
+        val maxUnits = glGetInteger(GL_MAX_TEXTURE_UNITS)
+        val unitToUse = when {
+            unit < 0 -> 0
+            unit >= maxUnits -> 0
+            else -> unit
         }
+        glActiveTexture(GL_TEXTURE0 + unitToUse)
+        glBindTexture(GL_TEXTURE_2D, textureId)
     }
 
+    /** Delete GL texture */
     fun cleanup() {
         if (textureId != 0) {
-            GL11.glDeleteTextures(textureId)
+            glDeleteTextures(textureId)
+            textureId = 0
         }
     }
 
     companion object {
         /**
-         * Creates a fallback placeholder texture for when the main atlas fails to load.
-         * This generates a 2x2 magenta and black checkerboard pattern.
+         * Create a minimal placeholder atlas (1x1 pixel). Useful when loading fails.
          */
         fun createPlaceholder(): TextureAtlas {
-            val atlas = TextureAtlas("placeholder")
-            atlas.textureId = GL11.glGenTextures()
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, atlas.textureId)
+            val atlas = TextureAtlas(null)
+            atlas.textureId = glGenTextures()
+            glBindTexture(GL_TEXTURE_2D, atlas.textureId)
 
-            // Set texture parameters for pixel art
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST)
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST)
+            // 1x1 black pixel RGBA
+            val px = MemoryUtil.memAlloc(4)
+            px.put(0.toByte()).put(0.toByte()).put(0.toByte()).put(255.toByte())
+            px.flip()
 
-            // Create a 2x2 pink/black checkerboard texture buffer
-            val pixels = ByteBuffer.allocateDirect(2 * 2 * 4) // 2x2 pixels, 4 bytes per pixel (RGBA)
-            val magenta = -65281 // 0xFFFF00FF in integer representation
-            val black = -16777216   // 0xFF000000 in integer representation
-            pixels.asIntBuffer().put(intArrayOf(magenta, black, black, magenta)).flip()
+            atlas.width = 1
+            atlas.height = 1
+            atlas.channels = 4
 
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, 2, 2, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+            glBindTexture(GL_TEXTURE_2D, 0)
 
-            // Unbind texture
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
-
-            println("Created placeholder texture with ID: ${atlas.textureId}")
+            MemoryUtil.memFree(px)
             return atlas
         }
     }

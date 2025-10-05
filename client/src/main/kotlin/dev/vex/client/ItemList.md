@@ -1,0 +1,286 @@
+# Items
+
+## Natural
+
+- Logs
+  - Oak
+  - Birch
+  - Spruce
+  - Maple
+  - Willow
+  - Rubber
+  - Applewood
+  - Cherry
+  - Lemonwood
+  - Limewood
+  - Mandarin
+- Ore
+  - Coal Ore
+  - Copper Ore
+  - Tin Ore
+  - Silver Ore
+  - Gold Ore
+  - Cobolt Ore
+  - Lithium Ore
+  - Iron Ore
+  - Magnesium Ore
+  - Platinum Ore
+  - Titanium Ore
+  - Malachite Ore
+  - Sapphire Ore
+  - Star Sapphire Ore
+  - Ruby Ore
+  - Heart Ruby Ore
+  - Emerald Ore
+  - Diamond Ore
+  - Black Diamond Ore
+  - Opal Ore
+  - Fire Opal Ore
+  - Obsidian
+  - Fire Obsidian
+- Refined Ores
+  - Coal
+  - Copper Ingot
+  - Tin Ingot
+  - Silver Ingot
+  - Gold Ingot
+  - Cobolt Dust
+  - Lithium Salt
+  - Iron Ingot
+  - Magnesium Ingot
+  - Platinum Ingot
+  - Titanium Ingot
+  - Malachite Ingot
+  - Sapphire
+  - Star Sapphire
+  - Ruby
+  - Heart Ruby
+  - Emerald
+  - Diamond
+  - Black Diamond
+  - Opal
+  - Fire Opal
+  - Obsidian Shard
+  - Fire Obsidian Shard
+- Alloy (Combined Metals)
+  - Bronze Ingot
+  - Orichalcum Ingot
+  - Steel Ingot
+  - Blue Steel
+- Refined Materials
+  - Charcoal
+- Electronics
+  - Copper Wire
+  - Blank PCB
+  - Etched PCB (Customizable Layout)
+  - Resistor
+  - Transistor 
+  - Chassis
+    - Metal (All Metal Types, Dyed Variants)
+      - Mini Metal Chassis
+      - Small Metal Chassis
+      - Medium Metal Chassis
+      - Large Metal Chassis
+      - XL Metal Chassis
+    - Gem (All Gem Variants)
+      - Mini Metal Chassis
+      - Small Metal Chassis
+      - Medium Metal Chassis
+      - Large Metal Chassis
+      - XL Metal Chassis
+    - Plastic (Dyed Variants)
+      - Mini Plastic Chassis
+      - Small Plastic Chassis
+      - Medium Plastic Chassis
+      - Large Plastic Chassis
+      - XL Plastic Chassis
+  - Cable
+  - Thick Cable
+  - Communication Cable
+  - Network Cable
+  - Fiber Network Cable
+  - Universal Cable
+  - Advanced Universal Cable
+  - Mini PCB
+  - Small PCB
+  - Medium PCB
+  - Large PCB
+  - XL PCB
+  - Mini Etched PCB (custom user layout)
+  - Small Etched PCB (custom user layout)
+  - Medium Etched PCB (custom user layout)
+  - Large Etched PCB (custom user layout)
+  - XL Etched PCB (custom user layout)
+  - Micro-Controllers
+    - 8-bit Microcontrollers
+      - PROM 
+        - 256KB
+        - 512KB
+        - 1MB
+        - 2MB
+        - 4MB
+      - EEPROM 
+        - 256KB
+        - 512KB
+        - 1MB
+        - 2MB
+        - 4MB
+      - Static Memory Controller 
+        - 256KB 
+        - 512KB
+        - 1MB
+        - 2MB
+        - 4MB
+      - 8-Bit Microchip
+      - 8-Bit Microcontroller
+      - MIDI Audio Controller
+    - 16-bit Microcontrollers
+      - Advanced MIDI Audio Controller
+      - Stereo Audio Controller
+      - PROM
+        - 16MB
+        - 32MB
+        - 64MB
+        - 256MB
+      - EEPROM
+        - 16MB
+        - 32MB
+        - 64MB
+        - 256MB
+      - Static Memory Controller 
+        - 16MB
+        - 32MB
+        - 64MB
+        - 256MB
+      - Graphics Memory Controller
+        - 16MB
+        - 32MB
+        - 64MB
+        - 256MB
+      - 16-Bit Microchip
+      - 16-Bit Microcontroller
+      - 16-Bit Central Processing Unit
+      - 16-Bit Graphic Processing Unit
+      - 16-Bit Cobolt Processing Unit
+    - 32-bit Microcontrollers
+      - Advanced Stereo Controller
+      - Graphics Memory Controller
+        - 256MB 
+        - 512MB
+        - 1GB
+        - 2GB
+        - 4GB
+      - Video Controller
+      - DRAM3 
+        - 256MB
+        - 512MB
+        - 1GGB
+        - 2GB
+        - 4GB
+      - 32-Bit Microchip
+      - 32-Bit Microcontroller
+      - 32-Bit Central Processing Unit
+      - 32-Bit Graphics Processing Unit
+      - 32-Bit Cobolt Processing Unit
+    - 64-bit Microcontrollers
+      - Extreme Audio Controller
+      - Advanced Video Controller
+      - Encryption Module
+      - Secure Platform Module
+      - Biometrics Module
+      - DRAM4 
+        - 4GB
+        - 8GB
+        - 16GB
+        - 32GB
+        - 64GB
+        - 128GB
+      - NVRAM
+        - 32GB
+        - 64GB
+        - 128GB
+        - 256GB
+        - 512GB
+        - 1TB
+        - 2TB
+        - 3TB
+        - 4TB
+        - 6TB
+        - 8TB
+        - 16TB
+      - 64-Bit Microchip
+      - 64-Bit Microcontroller
+      - 64-Bit Central Processing Unit
+      - 64-Bit Graphics Processing Unit
+      - 64-Bit Neural Processing Unit
+      - 64-Bit Cobolt Processing Unit
+    - 128-bit Microcontrollers (emulated 64-bit)
+      - Advanced Audio Controller
+      - Extreme Video Controller
+      - Advanced Encryption Module
+      - Advanced Biometrics Module
+      - Advanced Storage Module
+      - DRAM5 
+        - 16GB
+        - 32GB
+        - 64GB
+        - 128GB
+        - 256GB
+        - 512GB
+        - 1TB
+      - EENVRAM
+        - 1TB
+        - 2TB
+        - 3TB
+        - 4TB
+        - 6TB
+        - 8TB
+        - 16TB
+        - 32TB
+        - 64TB
+        - 128TB
+        - 256TB
+        - 512TB
+        - 1PB
+  - IO
+    - Universal Cable Port
+    - Advanced Universal Cable Port
+    - Video Cable Port
+    - Audio Cable Port
+    - Advanced Audio Cable Port
+    - Advanced Video Cable Port
+    - Programmable Button
+  - Motherboard
+  - Advanced Motherboard
+  - Daughterboard
+  - Advanced Daughterboard
+  - Server Motherboard
+  - Advanced Server Motherboard
+  - Wireless Net Interface Card
+  - Wireless Net Antenna
+  - Power Supplies
+    - Mini Power Supply
+      - 25W
+      - 50W 
+      - 100W
+      - 250W
+      - 400W
+    - Small Power Supply
+      - 100W
+      - 250W
+      - 400W
+      - 450W
+      - 500W
+    - Regular Power Supply
+      - 100W
+      - 250W
+      - 400W
+      - 450W
+      - 500W
+      - 600W
+      - 750W
+      - 800W
+      - 1000W
+      - 1500W
+      - 2000W
+      - 2500W
